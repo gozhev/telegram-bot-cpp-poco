@@ -538,7 +538,7 @@ void TelegramBot::HandleCommandCamera(ChatId user_id) {
 		::std::cerr << "error: memcached: " << ::memcached_strerror(memc, retval) << ::std::endl;
 	}
 
-	auto link = ::std::string{"http://psi.home.gozhev.ru/" + token};
+	auto link = ::std::string{"https://home.gozhev.ru/psi/" + token + "/"};
 	auto req_jo = p_json::Object::Ptr{new p_json::Object};
 	req_jo->set("chat_id", user_id);
 	req_jo->set("text", link);
