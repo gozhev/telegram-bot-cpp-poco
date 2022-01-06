@@ -587,6 +587,11 @@ pdc::Var TelegramBot::SendMessage(::std::string_view method, pdc::Var const& req
 	Send(method, req);
 	auto resp_dv = Receive();
 
+	::std::cout << "REQUEST:" << ::std::endl;
+	pj::Stringifier::condense(resp_dv, ::std::cout);
+	::std::cout << ::std::endl;
+
+	::std::cout << "RESPONSE:" << ::std::endl;
 	pj::Stringifier::condense(resp_dv, ::std::cout);
 	::std::cout << ::std::endl;
 
