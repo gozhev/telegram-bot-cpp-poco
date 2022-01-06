@@ -172,7 +172,8 @@ private:
 	bool ProcessUpdate(::Poco::JSON::Object::Ptr update);
 	void Send(::std::string_view method, ::Poco::Dynamic::Var const& json);
 	::Poco::Dynamic::Var Receive();
-	::Poco::Dynamic::Var SendMessage(::std::string_view method, ::Poco::Dynamic::Var const& req);
+	::Poco::Dynamic::Var SendMessage(::std::string_view method, ::Poco::Dynamic::Var const& req,
+			Error& error) noexcept;
 
 	void HandleUpdates(Error& error) noexcept;
 
