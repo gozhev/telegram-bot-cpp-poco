@@ -237,52 +237,58 @@ void TelegramBot::ProcessCallbackQuery(pdc::Var const& cq)
 		return;
 	}
 
+	if (data.kb.GetMode() == Keyboard::Mode::VIEW && data.key.type == Key::Type::DAY) {
+		auto req_jo = pj::Object::Ptr{new pj::Object};
+		req_jo->set("callback_query_id", cq_id);
+		req_jo->set("cache_time", 0);
+		req_jo->set("show_alert", true);
+
+		::std::size_t n_users = 0;
+		if (auto idate = date_cache_.find(data.key.data.date); idate != date_cache_.end()) {
+			for (auto const& [user_id, remove] : idate->second) {
+				if (!remove) {
+					++n_users;
+				}
+			}
+		}
+		if (!n_users) {
+			req_jo->set("text", "Присутствий нет.");
+		} else {
+			auto text = ::std::string("В этот день будут:\n\n");
+			auto idate = date_cache_.find(data.key.data.date);
+			for (auto const& [user_id, flag] : idate->second) {
+				if (flag) {
+					continue;
+				}
+				auto user = GetUserCaching(user_id);
+				auto user_str = ::std::string{};
+				if (user.first_name.size()) {
+					user_str.append(user.first_name);
+				}
+				if (user.last_name.size()) {
+					if (user_str.size()) {
+						user_str.append(" ");
+					}
+					user_str.append(user.last_name);
+				}
+				if (!user_str.size()) {
+					user_str.append("id");
+					user_str.append(::std::to_string(user_id));
+				}
+				text.append(user_str);
+				text.append("\n");
+			}
+			req_jo->set("text", text);
+		}
+		SendMessage("answerCallbackQuery", req_jo);
+		return;
+	}
+
 	{
 		auto req_jo = pj::Object::Ptr{new pj::Object};
 		req_jo->set("callback_query_id", cq_id);
 		req_jo->set("cache_time", 0);
-
-		if (data.kb.GetMode() == Keyboard::Mode::VIEW && data.key.type == Key::Type::DAY) {
-			req_jo->set("show_alert", true);
-
-			::std::size_t n_users = 0;
-			if (auto idate = date_cache_.find(data.key.data.date); idate != date_cache_.end()) {
-				for (auto const& [user_id, remove] : idate->second) {
-					if (!remove) {
-						++n_users;
-					}
-				}
-			}
-			if (!n_users) {
-				req_jo->set("text", "Присутствий нет.");
-			} else {
-				auto text = ::std::string("В этот день будут:\n\n");
-				auto idate = date_cache_.find(data.key.data.date);
-				for (auto const& [user_id, flag] : idate->second) {
-					if (flag) {
-						continue;
-					}
-					auto user = GetUserCaching(user_id);
-					auto user_str = ::std::string{};
-					if (user.first_name.size()) {
-						user_str.append(user.first_name);
-					}
-					if (user.last_name.size()) {
-						if (user_str.size()) {
-							user_str.append(" ");
-						}
-						user_str.append(user.last_name);
-					}
-					if (!user_str.size()) {
-						user_str.append("id");
-						user_str.append(::std::to_string(user_id));
-					}
-					text.append(user_str);
-					text.append("\n");
-				}
-				req_jo->set("text", text);
-			}
-		}
+		req_jo->set("text", "Некорректные или устаревшие данные.");
 		SendMessage("answerCallbackQuery", req_jo);
 	}
 
@@ -549,18 +555,31 @@ try {
 	for (::std::size_t i = 0; i < res_ja->size(); ++i) {
 		ProcessUpdate(res_ja->getObject(i));
 	}
+	OnUpdateSucceed(error);
 }
 catch (::Poco::Exception const& e) {
-	error = Error{true};
+	OnUpdateFailed(error);
 	::std::cerr << e.displayText() << ::std::endl;
 }
 catch (::std::exception const& e) {
-	error = Error{true};
+	OnUpdateFailed(error);
 	::std::cerr << e.what() << ::std::endl;
 }
 catch (...) {
 	error = Error{true};
 	::std::cerr << "unknown non-stantard exception" << ::std::endl;
+}
+
+void TelegramBot::OnUpdateSucceed(Error& error) noexcept {
+	(void) error;
+	error_seq_count_ = 0;
+}
+
+void TelegramBot::OnUpdateFailed(Error& error) noexcept {
+	static constexpr int ERROR_SEQ_COUNT_MAX = 5;
+	if (++error_seq_count_ > ERROR_SEQ_COUNT_MAX) {
+		error = Error{true};
+	}
 }
 
 pdc::Var TelegramBot::SendMessage(::std::string_view method, pdc::Var const& req)

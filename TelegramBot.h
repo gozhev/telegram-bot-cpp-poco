@@ -153,6 +153,10 @@ private:
 	::std::unique_ptr<::Poco::Net::HTTPSClientSession> api_session_{};
 	::std::unique_ptr<::Poco::Data::Session> db_session_{};
 
+	::std::size_t error_seq_count_{};
+
+	void OnUpdateSucceed(Error& error) noexcept;
+	void OnUpdateFailed(Error& error) noexcept;
 	bool IsUserRegistered(ChatId user_id) const;
 	void RegisterUser(ChatId user_id) const;
 	bool PopInvite(::std::string const& invite, ChatId& user_id) const;
