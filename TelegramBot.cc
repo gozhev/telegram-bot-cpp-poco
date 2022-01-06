@@ -288,7 +288,6 @@ void TelegramBot::ProcessCallbackQuery(pdc::Var const& cq)
 		auto req_jo = pj::Object::Ptr{new pj::Object};
 		req_jo->set("callback_query_id", cq_id);
 		req_jo->set("cache_time", 0);
-		req_jo->set("text", "Некорректные или устаревшие данные.");
 		SendMessage("answerCallbackQuery", req_jo);
 	}
 
@@ -587,13 +586,16 @@ pdc::Var TelegramBot::SendMessage(::std::string_view method, pdc::Var const& req
 	Send(method, req);
 	auto resp_dv = Receive();
 
+#if 0
 	::std::cout << "REQUEST:" << ::std::endl;
-	pj::Stringifier::condense(resp_dv, ::std::cout);
+	::std::cout << method << " ";
+	pj::Stringifier::stringify(req, ::std::cout);
 	::std::cout << ::std::endl;
 
 	::std::cout << "RESPONSE:" << ::std::endl;
-	pj::Stringifier::condense(resp_dv, ::std::cout);
+	pj::Stringifier::stringify(resp_dv, ::std::cout, 1, 2);
 	::std::cout << ::std::endl;
+#endif
 
 	auto resp_jo = resp_dv.extract<pj::Object::Ptr>();
 	if (auto ok = resp_jo->getValue<bool>("ok"); !ok) {
