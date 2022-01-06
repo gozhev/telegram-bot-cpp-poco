@@ -148,6 +148,11 @@ private:
 	::std::unique_ptr<::Poco::Net::HTTPSClientSession> api_session_{};
 	::std::unique_ptr<::Poco::Data::Session> db_session_{};
 
+	bool IsUserRegistered(ChatId user_id) const;
+	::std::string GenerateInviteToken() const;
+	void RegisterUser(ChatId user_id) const;
+	bool PopInvite(::std::string const& invite, ChatId& user_id) const;
+	void PushInvite(::std::string const& invite, ChatId user_id) const;
 	void UpdateDataBase();
 	void ReadDataBase(Date const& first_date, Date const& last_date);
 	User const& GetUserCaching(ChatId user_id);

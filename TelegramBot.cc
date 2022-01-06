@@ -4,9 +4,13 @@
 #include <sstream>
 #include <fstream>
 
+#include <Poco/Base64Encoder.h>
+#include <Poco/Data/MySQL/MySQLException.h>
+#include <Poco/Data/RecordSet.h>
+#include <Poco/Exception.h>
+#include <Poco/Random.h>
 #include <Poco/TextEncoding.h>
 #include <Poco/TextIterator.h>
-#include <Poco/Data/RecordSet.h>
 #include <Poco/Util/PropertyFileConfiguration.h>
 
 namespace pj = ::Poco::JSON;
@@ -16,21 +20,16 @@ namespace pu = ::Poco::Util;
 namespace pd = ::Poco::Data;
 namespace pd_k = ::Poco::Data::Keywords;
 
-TelegramBot::TelegramBot(Error& error)
+TelegramBot::TelegramBot(Error& error) try
 {
-	try {
-		auto conf = ::Poco::AutoPtr<pu::PropertyFileConfiguration>{
-			new pu::PropertyFileConfiguration{"telegram-bot.conf"}};
-		api_token_ = conf->getString("api.token");
-		db_host_ = conf->getString("db.host");
-		db_port_ = conf->getString("db.port");
-		db_database_ = conf->getString("db.database");
-		db_user_ = conf->getString("db.user");
-		db_password_ = conf->getString("db.password");
-	} catch (Poco::NotFoundException const& e) {
-		error = Error{true};
-		return;
-	}
+	auto conf = pu::AbstractConfiguration::Ptr{
+		new pu::PropertyFileConfiguration{"telegram-bot.conf"}};
+	api_token_ = conf->getString("api.token");
+	db_host_ = conf->getString("db.host");
+	db_port_ = conf->getString("db.port");
+	db_database_ = conf->getString("db.database");
+	db_user_ = conf->getString("db.user");
+	db_password_ = conf->getString("db.password");
 
 	base_path_ = GenerateBasePath(api_token_);
 
@@ -57,24 +56,61 @@ TelegramBot::TelegramBot(Error& error)
 		"auto-reconnect=true";
 	db_session_ = ::std::make_unique<pd::Session>("MySQL", connstr_ss.str());
 
-	*db_session_ << "CREATE TABLE IF NOT EXISTS Users (UserId BIGINT PRIMARY KEY)", pd_k::now;
-	*db_session_ << "CREATE TABLE IF NOT EXISTS Dates (Date DATE PRIMARY KEY)", pd_k::now;
+	*db_session_ << "CREATE TABLE IF NOT EXISTS RegisteredUsers ("
+		"UserId BIGINT PRIMARY KEY)", pd_k::now;
 	*db_session_ << "CREATE TABLE IF NOT EXISTS Attendances ("
-		"Date DATE REFERENCES Dates(Date), "
-		"UserId BIGINT REFERENCES Users(UserId), "
+		"Date DATE, "
+		"UserId BIGINT, "
 		"PRIMARY KEY (Date, UserId))", pd_k::now;
 	*db_session_ << "CREATE TABLE IF NOT EXISTS Invites ("
 		"Invite VARCHAR(64) PRIMARY KEY, "
-		"Initiator BIGINT REFERENCES Users(UserId))", pd_k::now;
+		"InvitedBy BIGINT)", pd_k::now;
+}
+catch (::Poco::Exception const& e) {
+	::std::cout << e.displayText() << ::std::endl;
+	error = Error{true};
+}
+catch (::std::exception const& e) {
+	::std::cout << e.what() << ::std::endl;
+	error = Error{true};
+}
+
+bool TelegramBot::PopInvite(::std::string const& invite_token, ChatId& user_id) const
+{
+	pd::Statement select(*db_session_);
+	select << "SELECT * FROM Invites WHERE Invite=?",
+		pd_k::bind(invite_token),
+		pd_k::now;
+	pd::RecordSet rs(select);
+	if (!rs.extractedRowCount()) {
+		return false;
+	}
+	*db_session_ << "DELETE FROM Invites WHERE Invite=?",
+		pd_k::bind(invite_token),
+		pd_k::now;
+	rs.row(0).get(1).convert(user_id);
+	return true;
+}
+
+void TelegramBot::PushInvite(::std::string const& invite_token, ChatId user_id) const
+{
+	*db_session_ << "INSERT INTO Invites VALUES(?, ?)",
+		pd_k::bind(invite_token),
+		pd_k::bind(user_id),
+		pd_k::now;
+}
+
+void TelegramBot::RegisterUser(ChatId user_id) const
+{
+	*db_session_ << "INSERT INTO RegisteredUsers VALUES(?) ON DUPLICATE KEY UPDATE UserId=UserId",
+		pd_k::bind(user_id),
+		pd_k::now;
 }
 
 void TelegramBot::UpdateDataBase()
 {
 	for (auto& [date, users] : date_cache_) {
 		auto db_date = date.To<pd::Date>();
-		*db_session_ << "INSERT INTO Dates VALUES(?) ON DUPLICATE KEY UPDATE Date=Date",
-			pd_k::bind(db_date),
-			pd_k::now;
 		for (auto iuser = users.begin(); iuser != users.end();) {
 			auto& [user_id, remove] = *iuser;
 			if (remove) {
@@ -84,9 +120,6 @@ void TelegramBot::UpdateDataBase()
 					pd_k::now;
 				iuser = users.erase(iuser);
 			} else {
-				*db_session_ << "INSERT INTO Users VALUES(?) ON DUPLICATE KEY UPDATE UserId=UserId",
-					pd_k::bind(user_id),
-					pd_k::now;
 				*db_session_ << "INSERT INTO Attendances VALUES(?, ?) ON DUPLICATE KEY UPDATE Date=Date",
 					pd_k::bind(db_date),
 					pd_k::bind(user_id),
@@ -102,7 +135,7 @@ void TelegramBot::ReadDataBase(Date const& first_date, Date const& last_date)
 	auto db_first = first_date.To<pd::Date>();
 	auto db_last = last_date.To<pd::Date>();
 	pd::Statement select(*db_session_);
-	select << "SELECT * FROM Attendances WHERE ? <= Date AND Date <= ?",
+	select << "SELECT * FROM Attendances WHERE ?<=Date AND Date<=?",
 		pd_k::bind(db_first),
 		pd_k::bind(db_last),
 		pd_k::now;
@@ -140,7 +173,7 @@ template<> ::std::string TelegramBot::Date::To() const
 
 TelegramBot::Date TelegramBot::Date::From(::std::string_view s)
 {
-	::std::regex const re { "([0-9]+).([0-9]+).([0-9]+)" };
+	::std::regex const re{"([0-9]+).([0-9]+).([0-9]+)"};
 	::std::match_results<::std::string_view::const_iterator> match{};
 	if (!::std::regex_match(s.cbegin(), s.cend(), match, re)) {
 		::std::cerr << "invalid date string: " << s << ::std::endl;
@@ -283,6 +316,36 @@ void TelegramBot::DiscardSelection(ChatId user_id)
 {
 	auto& ud = user_data_[user_id];
 	ud.selection.clear();
+}
+
+auto TelegramBot::RecacheUser(ChatId user_id) -> decltype(user_cache_)::iterator
+{
+	User user{};
+	pj::Object::Ptr jreq{new Poco::JSON::Object};
+	jreq->set("chat_id", user_id);
+	Send("getChat", jreq);
+	auto resp_dv = Receive();
+	auto jresp = resp_dv.extract<pj::Object::Ptr>();
+	auto jresult = jresp->getObject("result");
+	if (auto jfirst_name = jresult->get("first_name"); !jfirst_name.isEmpty()) {
+		user.first_name = jfirst_name.extract<::std::string>();
+	}
+	if (auto jlast_name = jresult->get("last_name"); !jlast_name.isEmpty()) {
+		user.last_name = jlast_name.extract<::std::string>();
+	}
+	if (auto jusername = jresult->get("username"); !jusername.isEmpty()) {
+		user.username = jusername.extract<::std::string>();
+	}
+	return user_cache_.insert_or_assign(user_id, ::std::move(user)).first;
+}
+
+TelegramBot::User const& TelegramBot::GetUserCaching(ChatId user_id)
+{
+	auto iuser = user_cache_.find(user_id);
+	if (iuser == user_cache_.end()) {
+		iuser = RecacheUser(user_id);
+	}
+	return iuser->second;
 }
 
 bool TelegramBot::ProcessCallbackQuery(pdy::Var const& cq)
@@ -460,63 +523,124 @@ bool TelegramBot::ProcessMessage(pdy::Var const& message_dv)
 	auto message = message_dv.extract<pj::Object::Ptr>();
 	auto from = message->getObject("from");
 	auto user_id = from->getValue<::std::size_t>("id");
-	//auto username = from->getValue<::std::string>("username");
-	auto first_name = from->getValue<::std::string>("first_name");
+
+	//auto first_name = from->getValue<::std::string>("first_name");
 	//auto last_name = from->getValue<::std::string>("last_name");
+	//auto username = from->getValue<::std::string>("username");
 	//auto text = message->getValue<::std::string>("text");
-	::std::cout << first_name << " " << ": msg" << ::std::endl;
 
-	//if (!users_.count(user_id)) {
-	//	::std::cout << "user not authorized to use the bot: "
-	//		<< first_name << " " << last_name <<
-	//		" (@" << username << ", " << user_id << ")" << ::std::endl;
-	//	return true;
-	//}
+	auto registered_user = IsUserRegistered(user_id);
 
-	{
+	auto jmsg = pj::Object::Ptr{new pj::Object};
+	jmsg->set("chat_id", user_id);
+
+	auto text_dv = message->get("text");
+	if (text_dv.isEmpty()) {
+		if (registered_user) {
+			jmsg->set("text", "Неправильный формат команды.");
+			Send("sendMessage", jmsg);
+			Receive();
+		}
+		return true;
+	}
+	auto text = text_dv.extract<::std::string>();
+
+	::std::regex const re{"/([A-Za-z0-9_-]+)(?: (.*))?"};
+	::std::smatch match{};
+	if (!::std::regex_match(text, match, re)) {
+		if (registered_user) {
+			jmsg->set("text", "Неправильный формат команды.");
+			Send("sendMessage", jmsg);
+			Receive();
+		}
+		return true;
+	}
+	auto command = match[1].str();
+
+	if (command == "start") {
+		if (!match[2].length()) {
+			if (registered_user) {
+				jmsg->set("text", "Ок.");
+				Send("sendMessage", jmsg);
+				Receive();
+			}
+			return true;
+		} else {
+			auto payload = match[2].str();
+			ChatId invited_by{};
+			if (!PopInvite(payload, invited_by)) {
+				if (registered_user) {
+					jmsg->set("text", "Ключ не найден.");
+					Send("sendMessage", jmsg);
+					Receive();
+				}
+				return true;
+			}
+			RegisterUser(user_id);
+			jmsg->set("text", "Регистрация прошла успешно.");
+			Send("sendMessage", jmsg);
+			Receive();
+			return true;
+		}
+	}
+
+	if (!registered_user) {
+		return true;
+	}
+
+	if (command == "calendar") {
 		Keyboard kb {Date::From(Today())};
 		ReadDataBase(kb.FirstDate(), kb.LastDate());
 		auto jkb = GenerateKeyboard(kb, user_id);
-		pj::Object::Ptr jmsg{new Poco::JSON::Object};
 		pj::Object::Ptr jmarkup{new Poco::JSON::Object};
 		jmarkup->set("inline_keyboard", jkb);
 		jmsg->set("reply_markup", jmarkup);
-		jmsg->set("chat_id", user_id);
 		jmsg->set("text", "Календарь присутствий");
-		Send("sendMessage", jmsg);
-		Receive();
+	} else if (command == "invite") {
+		auto invite_token = GenerateInviteToken();
+		PushInvite(invite_token, user_id);
+		auto invite_link = ::std::string{"https://t.me/HomeGozhevRuBot?start="};
+		invite_link.append(invite_token);
+		auto text = ::std::string{
+			"Передайте эту ссылку пользователю, которого хотите добавить:\n"};
+		text.append(invite_link);
+		jmsg->set("text", text);
+	} else {
+		jmsg->set("text", "Неизвестная команда.");
 	}
+
+	Send("sendMessage", jmsg);
+	Receive();
 	return true;
 }
 
-auto TelegramBot::RecacheUser(ChatId user_id) -> decltype(user_cache_)::iterator
+::std::string TelegramBot::GenerateInviteToken() const
 {
-	User user{};
-	pj::Object::Ptr jreq{new Poco::JSON::Object};
-	jreq->set("chat_id", user_id);
-	Send("getChat", jreq);
-	auto resp_dv = Receive();
-	auto jresp = resp_dv.extract<pj::Object::Ptr>();
-	auto jresult = jresp->getObject("result");
-	if (auto jfirst_name = jresult->get("first_name"); !jfirst_name.isEmpty()) {
-		user.first_name = jfirst_name.extract<::std::string>();
+	auto prng = ::Poco::Random{};
+	auto sstm = ::std::stringstream{};
+	auto encstm = ::Poco::Base64Encoder{sstm,
+		::Poco::Base64EncodingOptions::BASE64_URL_ENCODING |
+		::Poco::Base64EncodingOptions::BASE64_NO_PADDING};
+	static constexpr int TOKEN_LENGTH = 32;
+	static constexpr int N_BYTES = TOKEN_LENGTH / 4 * 3;
+	for (int i = 0; i < N_BYTES; ++i) {
+		encstm << prng.nextChar();
 	}
-	if (auto jlast_name = jresult->get("last_name"); !jlast_name.isEmpty()) {
-		user.last_name = jlast_name.extract<::std::string>();
-	}
-	if (auto jusername = jresult->get("username"); !jusername.isEmpty()) {
-		user.username = jusername.extract<::std::string>();
-	}
-	return user_cache_.insert_or_assign(user_id, ::std::move(user)).first;
+	encstm.close();
+	return sstm.str();
 }
 
-TelegramBot::User const& TelegramBot::GetUserCaching(ChatId user_id)
+bool TelegramBot::IsUserRegistered(ChatId user_id) const
 {
-	auto iuser = user_cache_.find(user_id);
-	if (iuser == user_cache_.end()) {
-		iuser = RecacheUser(user_id);
+	pd::Statement select(*db_session_);
+	select << "SELECT * FROM RegisteredUsers WHERE UserId=?",
+		pd_k::bind(user_id),
+		pd_k::now;
+	pd::RecordSet rs(select);
+	if (!rs.extractedRowCount()) {
+		return false;
 	}
-	return iuser->second;
+	return true;
 }
 
 bool TelegramBot::ProcessUpdate(pj::Object::Ptr update)
