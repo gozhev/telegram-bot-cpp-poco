@@ -1,0 +1,14 @@
+[Unit]
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=%h
+
+[Service]
+Environment=
+Restart=on-failure
+TimeoutStopSec=10
+ExecStart=%h/devel/telegram-bot-cxx/telegram-bot
+Type=simple
+
+[Install]
+WantedBy=multi-user.target default.target
