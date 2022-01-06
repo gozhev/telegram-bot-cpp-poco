@@ -155,6 +155,8 @@ private:
 
 	::std::size_t error_seq_count_{};
 
+	void HandleCommandUsers(ChatId user_id);
+	::std::vector<User> GetRegisteredUsers();
 	void OnUpdateSucceed(Error& error) noexcept;
 	void OnUpdateFailed(Error& error) noexcept;
 	bool IsUserRegistered(ChatId user_id) const;

@@ -199,6 +199,7 @@ auto TelegramBot::RecacheUser(ChatId user_id) -> decltype(user_cache_)::iterator
 	if (auto dv = res_jo->get("username"); !dv.isEmpty()) {
 		user.username = dv.extract<::std::string>();
 	}
+	user.user_id = user_id;
 	return user_cache_.insert_or_assign(user_id, ::std::move(user)).first;
 }
 
@@ -479,6 +480,8 @@ void TelegramBot::ProcessMessage(pdc::Var const& msg_dv)
 		req_jo->set("chat_id", user_id);
 		req_jo->set("text", text);
 		SendMessage("sendMessage", req_jo);
+	} else if (command == "users") {
+		HandleCommandUsers(user_id);
 	} else {
 		auto req_jo = pj::Object::Ptr{new pj::Object};
 		req_jo->set("chat_id", user_id);
@@ -487,7 +490,40 @@ void TelegramBot::ProcessMessage(pdc::Var const& msg_dv)
 		req_jo->set("text", GetListOfCommads());
 		SendMessage("sendMessage", req_jo);
 	}
+}
 
+void TelegramBot::HandleCommandUsers(ChatId user_id) {
+	auto users = GetRegisteredUsers();
+	::std::stringstream sstm{};
+	sstm << "Зарегистрированные пользователи:\n";
+	for (auto const& user : users) {
+		sstm << "\n";
+		if (!user.first_name.empty()) {
+			sstm << user.first_name << " ";
+		}
+		if (!user.last_name.empty()) {
+			sstm << user.last_name << " ";
+		}
+		sstm << "(" << user.user_id << ")";
+	}
+	auto req_jo = pj::Object::Ptr{new pj::Object};
+	req_jo->set("chat_id", user_id);
+	req_jo->set("text", sstm.str());
+	SendMessage("sendMessage", req_jo);
+}
+
+::std::vector<TelegramBot::User> TelegramBot::GetRegisteredUsers()
+{
+	auto select = pd::Statement{*db_session_};
+	select << "SELECT UserId FROM RegisteredUsers",
+		pd_k::now;
+	auto rs = pd::RecordSet{select};
+	::std::vector<User> users{};
+	for (auto& row : rs) {
+		auto user_id = row.get(0).extract<ChatId>();
+		users.push_back(GetUserCaching(user_id));
+	}
+	return users;
 }
 
 bool TelegramBot::IsUserRegistered(ChatId user_id) const
@@ -509,7 +545,8 @@ bool TelegramBot::IsUserRegistered(ChatId user_id) const
 	sstm << "Доступные команды:\n" <<
 		"\n" << "/start - показать доступные команды" <<
 		"\n" << "/calendar - открыть календарь посещений" <<
-		"\n" << "/invite - пригласить нового пользователя";
+		"\n" << "/invite - пригласить нового пользователя" <<
+		"\n" << "/users - показать зарегистрированных пользователей";
 	return sstm.str();
 }
 
