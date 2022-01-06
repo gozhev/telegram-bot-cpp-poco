@@ -2,10 +2,12 @@
 Wants=network-online.target
 After=network-online.target
 RequiresMountsFor=%h
+StartLimitIntervalSec=0
 
 [Service]
 Environment=
-Restart=on-failure
+Restart=always
+RestartSec=60
 TimeoutStopSec=10
 WorkingDirectory=%h/devel/telegram-bot-cxx
 ExecStart=%h/devel/telegram-bot-cxx/telegram-bot
