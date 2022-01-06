@@ -16,14 +16,15 @@ int main(int, char**)
 	::sigemptyset(&sa.sa_mask);
 	::sigaction(SIGINT, &sa, nullptr);
 
+	auto stop_pred = []() noexcept { return g_quit; };
 	auto err = TelegramBot::NoError();
 	TelegramBot bot{err};
 	if (err) {
 		return -1;
 	}
-	bot.Run([](){ return g_quit; }, err);
+	bot.Run(stop_pred, err);
 	if (err) {
-		return -2;
+		return -1;
 	}
 	return 0;
 }

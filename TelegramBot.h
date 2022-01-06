@@ -1,13 +1,14 @@
 #pragma once
 
-#include <iostream>
-#include <sstream>
 #include <array>
-#include <vector>
-#include <iterator>
 #include <ctime>
-#include <unordered_set>
+#include <iostream>
+#include <iterator>
+#include <sstream>
+#include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include <Poco/Data/MySQL/Connector.h>
 #include <Poco/Data/Session.h>
@@ -33,11 +34,14 @@
 class TelegramBot {
 public:
 	using Error = bool;
-	explicit TelegramBot(Error& error);
+	static Error NoError() noexcept { return Error{false}; }
+
+	explicit TelegramBot(Error& error) noexcept;
+	template<typename T, typename = ::std::enable_if_t<noexcept(::std::declval<T>()())>>
+		void Run(T stop, Error& error) noexcept;
+
 	TelegramBot(TelegramBot const&) = delete;
 	TelegramBot& operator=(TelegramBot const&) = delete;
-	template<typename T> void Run(T stop, Error& error);
-	static Error NoError() { return false; }
 
 private:
 	static constexpr char const* API_URL = "https://api.telegram.org";
@@ -162,12 +166,15 @@ private:
 	void StoreSelection(ChatId user_id);
 	::Poco::Dynamic::Var GenerateKeyboard(Keyboard const& kb, ChatId user_id);
 	bool ParseCallbackData(::std::string_view data_str, CallbackData& data);
-	bool HandleUpdates();
 	bool ProcessCallbackQuery(::Poco::Dynamic::Var const& callback_query_dv);
 	bool ProcessMessage(::Poco::Dynamic::Var const& message_dv);
 	bool ProcessUpdate(::Poco::JSON::Object::Ptr update);
 	void Send(::std::string_view method, ::Poco::Dynamic::Var const& json);
 	::Poco::Dynamic::Var Receive();
+	::Poco::Dynamic::Var SendMessage(::std::string_view method, ::Poco::Dynamic::Var const& req);
+
+	void HandleUpdates(Error& error) noexcept;
+
 	static ::std::string UnderlineUtf8String(::std::string const& s);
 
 	static ::std::tm Today() {
@@ -189,12 +196,14 @@ template<> ::std::string TelegramBot::Date::To() const;
 template<> ::std::tm TelegramBot::Date::To() const;
 template<> ::Poco::Data::Date TelegramBot::Date::To() const;
 
-template<typename T>
-inline void TelegramBot::Run(T stop, Error& error)
+template<typename T, typename = ::std::enable_if_t<noexcept(::std::declval<T>()())>>
+	inline void TelegramBot::Run(T stop, Error& error) noexcept
 {
+	auto err = Error{false};
 	while (!stop()) {
-		if (!HandleUpdates()) {
-			error = Error(true);
+		HandleUpdates(err);
+		if (err) {
+			error = err;
 			break;
 		}
 	}

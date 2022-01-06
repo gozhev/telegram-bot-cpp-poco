@@ -20,10 +20,10 @@ namespace pu = ::Poco::Util;
 namespace pd = ::Poco::Data;
 namespace pd_k = ::Poco::Data::Keywords;
 
-TelegramBot::TelegramBot(Error& error) try
+TelegramBot::TelegramBot(Error& error) noexcept try
 {
-	auto conf = pu::AbstractConfiguration::Ptr{
-		new pu::PropertyFileConfiguration{"telegram-bot.conf"}};
+	auto conf =
+		pu::AbstractConfiguration::Ptr{new pu::PropertyFileConfiguration{"telegram-bot.conf"}};
 	api_token_ = conf->getString("api.token");
 	db_host_ = conf->getString("db.host");
 	db_port_ = conf->getString("db.port");
@@ -36,8 +36,9 @@ TelegramBot::TelegramBot(Error& error) try
 	pn::HTTPSStreamFactory::registerFactory();
 	pn::initializeSSL();
 
-	cert_handler_ = new pn::AcceptCertificateHandler(false);
-	context_ = new pn::Context(pn::Context::CLIENT_USE, "");
+	cert_handler_ =
+		pn::SSLManager::InvalidCertificateHandlerPtr{new pn::AcceptCertificateHandler(false)};
+	context_ = pn::Context::Ptr{new pn::Context(pn::Context::CLIENT_USE, "")};
 	pn::SSLManager::instance().initializeClient(0, cert_handler_, context_);
 
 	const auto uri = ::Poco::URI{API_URL};
@@ -45,8 +46,8 @@ TelegramBot::TelegramBot(Error& error) try
 	api_session_->setKeepAlive(true);
 
 	pd::MySQL::Connector::registerConnector();
-	::std::stringstream connstr_ss {};
-	connstr_ss <<
+	::std::stringstream conn_sstm {};
+	conn_sstm <<
 		"host=" << db_host_ << ";" <<
 		"port=" << db_port_ << ";" <<
 		"db=" << db_database_ << ";" <<
@@ -54,10 +55,9 @@ TelegramBot::TelegramBot(Error& error) try
 		"password=" << db_password_ << ";" <<
 		"compress=true;" <<
 		"auto-reconnect=true";
-	db_session_ = ::std::make_unique<pd::Session>("MySQL", connstr_ss.str());
-
+	db_session_ = ::std::make_unique<pd::Session>("MySQL", conn_sstm.str());
 	*db_session_ << "CREATE TABLE IF NOT EXISTS RegisteredUsers ("
-		"UserId BIGINT PRIMARY KEY)", pd_k::now;
+		"UserId BIGINT PRIMARY KEY);", pd_k::now;
 	*db_session_ << "CREATE TABLE IF NOT EXISTS Attendances ("
 		"Date DATE, "
 		"UserId BIGINT, "
@@ -663,7 +663,7 @@ bool TelegramBot::ProcessUpdate(pj::Object::Ptr update)
 	return true;
 }
 
-bool TelegramBot::HandleUpdates()
+void TelegramBot::HandleUpdates(Error& error) noexcept try
 {
 	pj::Object::Ptr jreq{new Poco::JSON::Object};
 	jreq->set("offset", last_update_id_ + 1);
@@ -679,7 +679,21 @@ bool TelegramBot::HandleUpdates()
 	for (::std::size_t i = 0; i < result->size(); ++i) {
 		ProcessUpdate(result->getObject(i));
 	}
-	return true;
+}
+catch (::Poco::Exception const& e) {
+	::std::cout << e.displayText() << ::std::endl;
+	error = Error{true};
+}
+catch (::std::exception const& e) {
+	::std::cout << e.what() << ::std::endl;
+	error = Error{true};
+}
+
+pdy::Var TelegramBot::SendMessage(::std::string_view method, pdy::Var const& req)
+{
+	Send(method, req);
+	auto resp = Receive();
+	return resp;
 }
 
 void TelegramBot::Send(::std::string_view method, pdy::Var const& json)
