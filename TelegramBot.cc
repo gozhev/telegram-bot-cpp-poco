@@ -58,24 +58,27 @@ TelegramBot::TelegramBot(Error& error)
 	db_session_ = ::std::make_unique<pd::Session>("MySQL", connstr_ss.str());
 
 	*db_session_ << "CREATE TABLE IF NOT EXISTS Users (UserId BIGINT PRIMARY KEY)", pd_k::now;
-	*db_session_ << "CREATE TABLE IF NOT EXISTS Dates (DateId DATE PRIMARY KEY)", pd_k::now;
+	*db_session_ << "CREATE TABLE IF NOT EXISTS Dates (Date DATE PRIMARY KEY)", pd_k::now;
 	*db_session_ << "CREATE TABLE IF NOT EXISTS Attendances ("
-		"DateId DATE REFERENCES Dates(DateId), "
-		"UserID BIGINT REFERENCES Users(UserId), "
-		"PRIMARY KEY (DateId, UserID))", pd_k::now;
+		"Date DATE REFERENCES Dates(Date), "
+		"UserId BIGINT REFERENCES Users(UserId), "
+		"PRIMARY KEY (Date, UserId))", pd_k::now;
+	*db_session_ << "CREATE TABLE IF NOT EXISTS Invites ("
+		"Invite VARCHAR(64) PRIMARY KEY, "
+		"Initiator BIGINT REFERENCES Users(UserId))", pd_k::now;
 }
 
 void TelegramBot::UpdateDataBase()
 {
 	for (auto& [date, users] : date_cache_) {
 		auto db_date = date.To<pd::Date>();
-		*db_session_ << "INSERT INTO Dates VALUES(?) ON DUPLICATE KEY UPDATE DateId=DateId",
+		*db_session_ << "INSERT INTO Dates VALUES(?) ON DUPLICATE KEY UPDATE Date=Date",
 			pd_k::bind(db_date),
 			pd_k::now;
 		for (auto iuser = users.begin(); iuser != users.end();) {
 			auto& [user_id, remove] = *iuser;
 			if (remove) {
-				*db_session_ << "DELETE FROM Attendances WHERE DateId=? AND UserID=?",
+				*db_session_ << "DELETE FROM Attendances WHERE Date=? AND UserId=?",
 					pd_k::bind(db_date),
 					pd_k::bind(user_id),
 					pd_k::now;
@@ -84,7 +87,7 @@ void TelegramBot::UpdateDataBase()
 				*db_session_ << "INSERT INTO Users VALUES(?) ON DUPLICATE KEY UPDATE UserId=UserId",
 					pd_k::bind(user_id),
 					pd_k::now;
-				*db_session_ << "INSERT INTO Attendances VALUES(?, ?) ON DUPLICATE KEY UPDATE DateId=DateId",
+				*db_session_ << "INSERT INTO Attendances VALUES(?, ?) ON DUPLICATE KEY UPDATE Date=Date",
 					pd_k::bind(db_date),
 					pd_k::bind(user_id),
 					pd_k::now;
@@ -99,7 +102,7 @@ void TelegramBot::ReadDataBase(Date const& first_date, Date const& last_date)
 	auto db_first = first_date.To<pd::Date>();
 	auto db_last = last_date.To<pd::Date>();
 	pd::Statement select(*db_session_);
-	select << "SELECT * FROM Attendances WHERE ? <= DateId AND DateId <= ?",
+	select << "SELECT * FROM Attendances WHERE ? <= Date AND Date <= ?",
 		pd_k::bind(db_first),
 		pd_k::bind(db_last),
 		pd_k::now;
