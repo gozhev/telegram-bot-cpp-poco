@@ -4,7 +4,7 @@ pkgver=0.0.1
 pkgrel=1
 pkgdesc="A telegram bot program used as a home automation interface"
 arch=('x86_64' 'aarch64')
-url="https://github.com/gozhev/web-telegram-bot-cpp-poco"
+url="https://github.com/gozhev/telegram-bot-cpp-poco"
 license=('unknown')
 backup=(
 	'etc/telegram-bot/telegram-bot.conf'
