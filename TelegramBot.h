@@ -53,7 +53,7 @@ private:
 			"Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"};
 	static constexpr int DAYS_PER_WEEK = 7;
 
-	using ChatId = ::std::size_t; // 52 bits at most
+	using ChatId = ::std::int64_t; // 52 bits at most
 	using MessageId = ChatId;
 	using CallbackQueryId = ::std::string;
 	using DateId = ::std::string;

@@ -1,6 +1,7 @@
 #include "TelegramBot.h"
 
 #include <fstream>
+#include <optional>
 #include <regex>
 #include <sstream>
 
@@ -387,9 +388,18 @@ void TelegramBot::ProcessCallbackQuery(p_dyn::Var const& cq)
 
 void TelegramBot::ProcessMessage(p_dyn::Var const& msg_dv)
 {
+#if 1
+	p_json::Stringifier::stringify(msg_dv, ::std::cout);
+	::std::cout << ::std::endl;
+#endif
+
 	auto msg_jo = msg_dv.extract<p_json::Object::Ptr>();
+
 	auto from_jo = msg_jo->getObject("from");
-	auto user_id = from_jo->getValue<::std::size_t>("id");
+	auto user_id = from_jo->getValue<ChatId>("id");
+
+	auto chat_jo = msg_jo->getObject("chat");
+	auto chat_id = chat_jo->getValue<ChatId>("id");
 
 	auto registered_user = IsUserRegistered(user_id);
 
@@ -431,7 +441,7 @@ void TelegramBot::ProcessMessage(p_dyn::Var const& msg_dv)
 		if (!match[2].length()) {
 			if (registered_user) {
 				auto req_jo = p_json::Object::Ptr{new p_json::Object};
-				req_jo->set("chat_id", user_id);
+				req_jo->set("chat_id", chat_id);
 				req_jo->set("text", GetListOfCommads());
 				SendMessage("sendMessage", req_jo);
 			}
@@ -470,7 +480,7 @@ void TelegramBot::ProcessMessage(p_dyn::Var const& msg_dv)
 		auto mk_jo = p_json::Object::Ptr{new Poco::JSON::Object};
 		mk_jo->set("inline_keyboard", kb_dv);
 		auto req_jo = p_json::Object::Ptr{new p_json::Object};
-		req_jo->set("chat_id", user_id);
+		req_jo->set("chat_id", user_id); // sic user_id
 		req_jo->set("reply_markup", mk_jo);
 		req_jo->set("text", "Календарь присутствий");
 		SendMessage("sendMessage", req_jo);
@@ -483,16 +493,16 @@ void TelegramBot::ProcessMessage(p_dyn::Var const& msg_dv)
 			"Передайте эту ссылку пользователю, которого хотите добавить:\n"};
 		text.append(invite_link);
 		auto req_jo = p_json::Object::Ptr{new p_json::Object};
-		req_jo->set("chat_id", user_id);
+		req_jo->set("chat_id", chat_id);
 		req_jo->set("text", text);
 		SendMessage("sendMessage", req_jo);
 	} else if (command == "users") {
-		HandleCommandUsers(user_id);
+		HandleCommandUsers(chat_id);
 	} else if (command == "sensor") {
-		HandleCommandSensor(user_id);
+		HandleCommandSensor(chat_id);
 	} else {
 		auto req_jo = p_json::Object::Ptr{new p_json::Object};
-		req_jo->set("chat_id", user_id);
+		req_jo->set("chat_id", chat_id);
 		req_jo->set("text", "Неизвестная команда.");
 		SendMessage("sendMessage", req_jo);
 		req_jo->set("text", GetListOfCommads());
