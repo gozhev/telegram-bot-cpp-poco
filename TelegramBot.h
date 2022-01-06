@@ -172,6 +172,7 @@ private:
 	void Send(::std::string_view method, ::Poco::Dynamic::Var const& json);
 	::Poco::Dynamic::Var Receive();
 	::Poco::Dynamic::Var SendMessage(::std::string_view method, ::Poco::Dynamic::Var const& req);
+	::std::string GetListOfCommads() const;
 
 	void HandleUpdates(Error& error) noexcept;
 

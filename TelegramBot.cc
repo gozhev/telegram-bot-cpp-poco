@@ -386,13 +386,14 @@ void TelegramBot::ProcessMessage(pdc::Var const& msg_dv)
 	//auto username = from->getValue<::std::string>("username");
 	//auto text = message->getValue<::std::string>("text");
 
-	auto req_jo = pj::Object::Ptr{new pj::Object};
-	req_jo->set("chat_id", user_id);
-
 	auto text_dv = msg_jo->get("text");
 	if (text_dv.isEmpty()) {
 		if (registered_user) {
+			auto req_jo = pj::Object::Ptr{new pj::Object};
+			req_jo->set("chat_id", user_id);
 			req_jo->set("text", "Неправильный формат команды.");
+			SendMessage("sendMessage", req_jo);
+			req_jo->set("text", GetListOfCommads());
 			SendMessage("sendMessage", req_jo);
 		}
 		return;
@@ -403,7 +404,11 @@ void TelegramBot::ProcessMessage(pdc::Var const& msg_dv)
 	::std::smatch match{};
 	if (!::std::regex_match(text, match, re)) {
 		if (registered_user) {
+			auto req_jo = pj::Object::Ptr{new pj::Object};
+			req_jo->set("chat_id", user_id);
 			req_jo->set("text", "Неправильный формат команды.");
+			SendMessage("sendMessage", req_jo);
+			req_jo->set("text", GetListOfCommads());
 			SendMessage("sendMessage", req_jo);
 		}
 		return;
@@ -413,7 +418,9 @@ void TelegramBot::ProcessMessage(pdc::Var const& msg_dv)
 	if (command == "start") {
 		if (!match[2].length()) {
 			if (registered_user) {
-				req_jo->set("text", "Ок.");
+				auto req_jo = pj::Object::Ptr{new pj::Object};
+				req_jo->set("chat_id", user_id);
+				req_jo->set("text", GetListOfCommads());
 				SendMessage("sendMessage", req_jo);
 			}
 			return;
@@ -422,13 +429,19 @@ void TelegramBot::ProcessMessage(pdc::Var const& msg_dv)
 			ChatId invited_by{};
 			if (!PopInvite(payload, invited_by)) {
 				if (registered_user) {
+					auto req_jo = pj::Object::Ptr{new pj::Object};
+					req_jo->set("chat_id", user_id);
 					req_jo->set("text", "Ключ не найден.");
 					SendMessage("sendMessage", req_jo);
 				}
 				return;
 			}
 			RegisterUser(user_id);
+			auto req_jo = pj::Object::Ptr{new pj::Object};
+			req_jo->set("chat_id", user_id);
 			req_jo->set("text", "Регистрация прошла успешно.");
+			SendMessage("sendMessage", req_jo);
+			req_jo->set("text", GetListOfCommads());
 			SendMessage("sendMessage", req_jo);
 			return;
 		}
@@ -444,8 +457,11 @@ void TelegramBot::ProcessMessage(pdc::Var const& msg_dv)
 		auto kb_dv = GenerateKeyboard(kb, user_id);
 		auto mk_jo = pj::Object::Ptr{new Poco::JSON::Object};
 		mk_jo->set("inline_keyboard", kb_dv);
+		auto req_jo = pj::Object::Ptr{new pj::Object};
+		req_jo->set("chat_id", user_id);
 		req_jo->set("reply_markup", mk_jo);
 		req_jo->set("text", "Календарь присутствий");
+		SendMessage("sendMessage", req_jo);
 	} else if (command == "invite") {
 		auto invite_token = GenerateInviteToken();
 		PushInvite(invite_token, user_id);
@@ -454,12 +470,19 @@ void TelegramBot::ProcessMessage(pdc::Var const& msg_dv)
 		auto text = ::std::string{
 			"Передайте эту ссылку пользователю, которого хотите добавить:\n"};
 		text.append(invite_link);
+		auto req_jo = pj::Object::Ptr{new pj::Object};
+		req_jo->set("chat_id", user_id);
 		req_jo->set("text", text);
+		SendMessage("sendMessage", req_jo);
 	} else {
+		auto req_jo = pj::Object::Ptr{new pj::Object};
+		req_jo->set("chat_id", user_id);
 		req_jo->set("text", "Неизвестная команда.");
+		SendMessage("sendMessage", req_jo);
+		req_jo->set("text", GetListOfCommads());
+		SendMessage("sendMessage", req_jo);
 	}
 
-	SendMessage("sendMessage", req_jo);
 }
 
 bool TelegramBot::IsUserRegistered(ChatId user_id) const
@@ -473,6 +496,16 @@ bool TelegramBot::IsUserRegistered(ChatId user_id) const
 		return false;
 	}
 	return true;
+}
+
+::std::string TelegramBot::GetListOfCommads() const
+{
+	::std::stringstream sstm{};
+	sstm << "Доступные команды:\n" <<
+		"\n" << "/start - показать доступные команды" <<
+		"\n" << "/calendar - открыть календарь посещений" <<
+		"\n" << "/invite - пригласить нового пользователя";
+	return sstm.str();
 }
 
 ::std::string TelegramBot::GenerateInviteToken()
