@@ -1,13 +1,18 @@
-TARGET := telegram-bot
+include make/make.mk
 
-SRCS := \
-	main.cc \
-	TelegramBot.cc \
-
-CXXFLAGS := \
+$.cxxflags += \
 	-std=c++17 \
+	-O2 \
+	#
 
-LDFLAGS := \
+$.cxxflags += \
+	-Wall \
+	-Wextra \
+	-Wpedantic \
+	-Werror \
+	#
+
+$.ldlibs += \
 	-lPocoFoundation \
 	-lPocoNet \
 	-lPocoNetSSL \
@@ -15,7 +20,12 @@ LDFLAGS := \
 	-lPocoData \
 	-lPocoDataMySQL \
 	-lPocoUtil \
+	#
 
-.PHONY: all
-all:
-	g++ -o $(TARGET) $(LDFLAGS) $(CXXFLAGS) $(SRCS)
+$(cc_binary)
+	name = telegram-bot
+	srcs = \
+		main.cc \
+		TelegramBot.cc \
+		#
+$;
