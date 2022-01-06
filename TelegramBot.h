@@ -154,7 +154,6 @@ private:
 	::std::unique_ptr<::Poco::Data::Session> db_session_{};
 
 	bool IsUserRegistered(ChatId user_id) const;
-	::std::string GenerateInviteToken() const;
 	void RegisterUser(ChatId user_id) const;
 	bool PopInvite(::std::string const& invite, ChatId& user_id) const;
 	void PushInvite(::std::string const& invite, ChatId user_id) const;
@@ -167,16 +166,16 @@ private:
 	void StoreSelection(ChatId user_id);
 	::Poco::Dynamic::Var GenerateKeyboard(Keyboard const& kb, ChatId user_id);
 	bool ParseCallbackData(::std::string_view data_str, CallbackData& data);
-	bool ProcessCallbackQuery(::Poco::Dynamic::Var const& callback_query_dv);
-	bool ProcessMessage(::Poco::Dynamic::Var const& message_dv);
-	bool ProcessUpdate(::Poco::JSON::Object::Ptr update);
+	void ProcessCallbackQuery(::Poco::Dynamic::Var const& callback_query_dv);
+	void ProcessMessage(::Poco::Dynamic::Var const& message_dv);
+	void ProcessUpdate(::Poco::JSON::Object::Ptr update);
 	void Send(::std::string_view method, ::Poco::Dynamic::Var const& json);
 	::Poco::Dynamic::Var Receive();
-	::Poco::Dynamic::Var SendMessage(::std::string_view method, ::Poco::Dynamic::Var const& req,
-			Error& error) noexcept;
+	::Poco::Dynamic::Var SendMessage(::std::string_view method, ::Poco::Dynamic::Var const& req);
 
 	void HandleUpdates(Error& error) noexcept;
 
+	static ::std::string GenerateInviteToken();
 	static ::std::string UnderlineUtf8String(::std::string const& s);
 
 	static ::std::tm Today() {

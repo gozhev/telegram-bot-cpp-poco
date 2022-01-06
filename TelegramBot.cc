@@ -151,7 +151,6 @@ void TelegramBot::ReadDataBase(Date const& first_date, Date const& last_date)
 		ChatId user_id {};
 		row.get(1).convert(user_id);
 		date_cache_[date].insert({user_id, false});
-		::std::cout << "row" << date.To<::std::string>() << ::std::endl;
 	}
 }
 
@@ -160,7 +159,6 @@ void TelegramBot::StoreSelection(ChatId user_id)
 	auto& ud = user_data_[user_id];
 	for (auto const& [date, flag] : ud.selection) {
 		date_cache_[date][user_id] = flag;
-		::std::cout << "=> " << date.To<::std::string>() << " " << date_cache_.size() << ::std::endl;
 	}
 	ud.selection.clear();
 }
@@ -188,22 +186,18 @@ void TelegramBot::DiscardSelection(ChatId user_id)
 auto TelegramBot::RecacheUser(ChatId user_id) -> decltype(user_cache_)::iterator
 {
 	User user{};
-	pj::Object::Ptr jreq{new Poco::JSON::Object};
-	jreq->set("chat_id", user_id);
-	auto err = NoError();
-	auto result_dv = SendMessage("getChat", jreq, err);
-	if (err) {
-		throw ::std::runtime_error{"failed to recache user"};
+	auto req_jo = pj::Object::Ptr{new Poco::JSON::Object};
+	req_jo->set("chat_id", user_id);
+	auto res_dv = SendMessage("getChat", req_jo);
+	auto res_jo = res_dv.extract<pj::Object::Ptr>();
+	if (auto dv = res_jo->get("first_name"); !dv.isEmpty()) {
+		user.first_name = dv.extract<::std::string>();
 	}
-	auto jresult = result_dv.extract<pj::Object::Ptr>();
-	if (auto jfirst_name = jresult->get("first_name"); !jfirst_name.isEmpty()) {
-		user.first_name = jfirst_name.extract<::std::string>();
+	if (auto dv = res_jo->get("last_name"); !dv.isEmpty()) {
+		user.last_name = dv.extract<::std::string>();
 	}
-	if (auto jlast_name = jresult->get("last_name"); !jlast_name.isEmpty()) {
-		user.last_name = jlast_name.extract<::std::string>();
-	}
-	if (auto jusername = jresult->get("username"); !jusername.isEmpty()) {
-		user.username = jusername.extract<::std::string>();
+	if (auto dv = res_jo->get("username"); !dv.isEmpty()) {
+		user.username = dv.extract<::std::string>();
 	}
 	return user_cache_.insert_or_assign(user_id, ::std::move(user)).first;
 }
@@ -217,194 +211,191 @@ TelegramBot::User const& TelegramBot::GetUserCaching(ChatId user_id)
 	return iuser->second;
 }
 
-bool TelegramBot::ProcessCallbackQuery(pdc::Var const& cq)
+void TelegramBot::ProcessCallbackQuery(pdc::Var const& cq)
 {
-	auto query = cq.extract<pj::Object::Ptr>();
-	auto cq_id = query->getValue<CallbackQueryId>("id");
-	auto from = query->getObject("from");
+	auto cq_jo = cq.extract<pj::Object::Ptr>();
+	auto cq_id = cq_jo->getValue<CallbackQueryId>("id");
+	auto from_jo = cq_jo->getObject("from");
+	auto user_id = from_jo->getValue<ChatId>("id");
+	auto first_name = from_jo->getValue<::std::string>("first_name");
+	auto msg_jo = cq_jo->getObject("message");
+	auto msg_id = msg_jo->getValue<MessageId>("message_id");
 
-	auto user_id = from->getValue<ChatId>("id");
 	//auto username = from->getValue<::std::string>("username");
-	auto first_name = from->getValue<::std::string>("first_name");
 	//auto last_name = from->getValue<::std::string>("last_name");
-	::std::cout << first_name << " " << ": query" << ::std::endl;
-
-	auto message = query->getObject("message");
-	auto message_id = message->getValue<MessageId>("message_id");
-	auto data_str = query->getValue<::std::string>("data");
 
 	auto& ud = user_data_[user_id];
 
 	CallbackData data {};
-	bool data_ok = data.Parse(data_str);
-
-	{
-		pj::Object::Ptr jreq{new Poco::JSON::Object};
-		jreq->set("callback_query_id", cq_id);
-		jreq->set("cache_time", 0);
-		jreq->set("show_alert", true);
-		if (data_ok) {
-			if (data.kb.GetMode() == Keyboard::Mode::VIEW &&
-					data.key.type == Key::Type::DAY) {
-				::std::size_t n_users = 0;
-				if (auto idate = date_cache_.find(data.key.data.date); idate != date_cache_.end()) {
-					for (auto const& [user_id, remove] : idate->second) {
-						if (!remove) {
-							++n_users;
-						}
-					}
-				}
-				if (!n_users) {
-					jreq->set("text", "Присутствий нет.");
-				} else {
-					auto text = ::std::string("В этот день будут:\n\n");
-					auto idate = date_cache_.find(data.key.data.date);
-					for (auto const& [user_id, flag] : idate->second) {
-						if (flag) {
-							continue;
-						}
-						auto user = GetUserCaching(user_id);
-						auto suser = ::std::string{};
-						if (user.first_name.size()) {
-							suser.append(user.first_name);
-						}
-						if (user.last_name.size()) {
-							if (suser.size()) {
-								suser.append(" ");
-							}
-							suser.append(user.last_name);
-						}
-						if (!suser.size()) {
-							suser.append("id");
-							suser.append(::std::to_string(user_id));
-						}
-						text.append(suser);
-						text.append("\n");
-					}
-					jreq->set("text", text);
-				}
-			}
-		}
-		auto err = NoError();
-		SendMessage("answerCallbackQuery", jreq, err);
+	auto data_str = cq_jo->getValue<::std::string>("data");
+	if (!data.Parse(data_str)) {
+		auto req_jo = pj::Object::Ptr{new pj::Object};
+		req_jo->set("callback_query_id", cq_id);
+		req_jo->set("cache_time", 0);
+		req_jo->set("text", "Некорректные или устаревшие данные.");
+		SendMessage("answerCallbackQuery", req_jo);
+		return;
 	}
 
-	if (!data_ok) {
-		return false;
+	{
+		auto req_jo = pj::Object::Ptr{new pj::Object};
+		req_jo->set("callback_query_id", cq_id);
+		req_jo->set("cache_time", 0);
+
+		if (data.kb.GetMode() == Keyboard::Mode::VIEW && data.key.type == Key::Type::DAY) {
+			req_jo->set("show_alert", true);
+
+			::std::size_t n_users = 0;
+			if (auto idate = date_cache_.find(data.key.data.date); idate != date_cache_.end()) {
+				for (auto const& [user_id, remove] : idate->second) {
+					if (!remove) {
+						++n_users;
+					}
+				}
+			}
+			if (!n_users) {
+				req_jo->set("text", "Присутствий нет.");
+			} else {
+				auto text = ::std::string("В этот день будут:\n\n");
+				auto idate = date_cache_.find(data.key.data.date);
+				for (auto const& [user_id, flag] : idate->second) {
+					if (flag) {
+						continue;
+					}
+					auto user = GetUserCaching(user_id);
+					auto user_str = ::std::string{};
+					if (user.first_name.size()) {
+						user_str.append(user.first_name);
+					}
+					if (user.last_name.size()) {
+						if (user_str.size()) {
+							user_str.append(" ");
+						}
+						user_str.append(user.last_name);
+					}
+					if (!user_str.size()) {
+						user_str.append("id");
+						user_str.append(::std::to_string(user_id));
+					}
+					text.append(user_str);
+					text.append("\n");
+				}
+				req_jo->set("text", text);
+			}
+		}
+		SendMessage("answerCallbackQuery", req_jo);
 	}
 
 	if (data.key.type == Key::Type::CLOSE) {
-		pj::Object::Ptr jreq{new Poco::JSON::Object};
-		pj::Object::Ptr markup{new Poco::JSON::Object};
-		jreq->set("chat_id", user_id);
-		jreq->set("message_id", message_id);
-		jreq->set("text", "Каледнарь присутствий обновлен.");
+		auto req_jo = pj::Object::Ptr{new Poco::JSON::Object};
+		auto mk_jo = pj::Object::Ptr{new Poco::JSON::Object};
+		req_jo->set("chat_id", user_id);
+		req_jo->set("message_id", msg_id);
+		req_jo->set("text", "Каледнарь присутствий обновлен.");
 		//jreq->set("text", "Каледнарь присутствий оставлен без изменений.");
 		//jreq->set("text", "В каледнарь присутствий добавлены дни:\n\n Отменены дни:\n\n");
-		jreq->set("reply_markup", markup);
-		auto err = NoError();
-		SendMessage("editMessageText", jreq, err);
-	}
-	else {
-		switch (data.key.type) {
-		case Key::Type::PREV_M:
-			data.kb.MoveMonth(-1);
-			ReadDataBase(data.kb.FirstDate(), data.kb.LastDate());
-			if (data.kb.GetMode() == Keyboard::Mode::EDIT) {
-				LoadSelection(user_id, data.kb.FirstDate(), data.kb.LastDate());
-			}
-			break;
-		case Key::Type::PREV_W:
-			data.kb.MoveWeek(-1);
-			ReadDataBase(data.kb.FirstDate(), data.kb.LastDate());
-			if (data.kb.GetMode() == Keyboard::Mode::EDIT) {
-				LoadSelection(user_id, data.kb.FirstDate(), data.kb.LastDate());
-			}
-			break;
-		case Key::Type::NEXT_W:
-			data.kb.MoveWeek(+1);
-			ReadDataBase(data.kb.FirstDate(), data.kb.LastDate());
-			if (data.kb.GetMode() == Keyboard::Mode::EDIT) {
-				LoadSelection(user_id, data.kb.FirstDate(), data.kb.LastDate());
-			}
-			break;
-		case Key::Type::NEXT_M:
-			data.kb.MoveMonth(+1);
-			ReadDataBase(data.kb.FirstDate(), data.kb.LastDate());
-			if (data.kb.GetMode() == Keyboard::Mode::EDIT) {
-				LoadSelection(user_id, data.kb.FirstDate(), data.kb.LastDate());
-			}
-			break;
-		case Key::Type::TODAY:
-			data.kb.SetCenter(Date::From(Today()));
-			ReadDataBase(data.kb.FirstDate(), data.kb.LastDate());
-			if (data.kb.GetMode() == Keyboard::Mode::EDIT) {
-				LoadSelection(user_id, data.kb.FirstDate(), data.kb.LastDate());
-			}
-			break;
-		case Key::Type::EDIT:
-			data.kb.SetMode(Keyboard::Mode::EDIT);
-			LoadSelection(user_id, data.kb.FirstDate(), data.kb.LastDate());
-			break;
-		case Key::Type::CANCEL:
-			data.kb.SetMode(Keyboard::Mode::VIEW);
-			DiscardSelection(user_id);
-			break;
-		case Key::Type::SAVE:
-			data.kb.SetMode(Keyboard::Mode::VIEW);
-			StoreSelection(user_id);
-			UpdateDataBase();
-			break;
-		case Key::Type::DAY:
-			if (data.kb.GetMode() == Keyboard::Mode::EDIT) {
-				auto const& date = data.key.data.date;
-				auto idate = ud.selection.find(date);
-				if (idate != ud.selection.end()) {
-					idate->second = !idate->second;
-				} else {
-					ud.selection.insert({date, false});
-				}
-			}
-			break;
-		}
-		auto jkb = GenerateKeyboard(data.kb, user_id);
-		pj::Object::Ptr jmarkup{new Poco::JSON::Object};
-		jmarkup->set("inline_keyboard", jkb);
-		pj::Object::Ptr jreq{new Poco::JSON::Object};
-		jreq->set("chat_id", user_id);
-		jreq->set("message_id", message_id);
-		jreq->set("reply_markup", jmarkup);
-		auto err = NoError();
-		SendMessage("editMessageReplyMarkup", jreq, err);
+		req_jo->set("reply_markup", mk_jo); // sic! empty markup
+		SendMessage("editMessageText", req_jo);
+		return;
 	}
 
-	return true;
+	switch (data.key.type) {
+	case Key::Type::PREV_M:
+		data.kb.MoveMonth(-1);
+		ReadDataBase(data.kb.FirstDate(), data.kb.LastDate());
+		if (data.kb.GetMode() == Keyboard::Mode::EDIT) {
+			LoadSelection(user_id, data.kb.FirstDate(), data.kb.LastDate());
+		}
+		break;
+	case Key::Type::PREV_W:
+		data.kb.MoveWeek(-1);
+		ReadDataBase(data.kb.FirstDate(), data.kb.LastDate());
+		if (data.kb.GetMode() == Keyboard::Mode::EDIT) {
+			LoadSelection(user_id, data.kb.FirstDate(), data.kb.LastDate());
+		}
+		break;
+	case Key::Type::NEXT_W:
+		data.kb.MoveWeek(+1);
+		ReadDataBase(data.kb.FirstDate(), data.kb.LastDate());
+		if (data.kb.GetMode() == Keyboard::Mode::EDIT) {
+			LoadSelection(user_id, data.kb.FirstDate(), data.kb.LastDate());
+		}
+		break;
+	case Key::Type::NEXT_M:
+		data.kb.MoveMonth(+1);
+		ReadDataBase(data.kb.FirstDate(), data.kb.LastDate());
+		if (data.kb.GetMode() == Keyboard::Mode::EDIT) {
+			LoadSelection(user_id, data.kb.FirstDate(), data.kb.LastDate());
+		}
+		break;
+	case Key::Type::TODAY:
+		data.kb.SetCenter(Date::From(Today()));
+		ReadDataBase(data.kb.FirstDate(), data.kb.LastDate());
+		if (data.kb.GetMode() == Keyboard::Mode::EDIT) {
+			LoadSelection(user_id, data.kb.FirstDate(), data.kb.LastDate());
+		}
+		break;
+	case Key::Type::EDIT:
+		data.kb.SetMode(Keyboard::Mode::EDIT);
+		LoadSelection(user_id, data.kb.FirstDate(), data.kb.LastDate());
+		break;
+	case Key::Type::CANCEL:
+		data.kb.SetMode(Keyboard::Mode::VIEW);
+		DiscardSelection(user_id);
+		break;
+	case Key::Type::SAVE:
+		data.kb.SetMode(Keyboard::Mode::VIEW);
+		StoreSelection(user_id);
+		UpdateDataBase();
+		break;
+	case Key::Type::DAY:
+		if (data.kb.GetMode() == Keyboard::Mode::EDIT) {
+			auto const& date = data.key.data.date;
+			auto idate = ud.selection.find(date);
+			if (idate != ud.selection.end()) {
+				idate->second = !idate->second;
+			} else {
+				ud.selection.insert({date, false});
+			}
+		}
+		break;
+	}
+
+	{
+		auto req_jo = pj::Object::Ptr{new Poco::JSON::Object};
+		req_jo->set("chat_id", user_id);
+		req_jo->set("message_id", msg_id);
+		auto kb_dv = GenerateKeyboard(data.kb, user_id);
+		auto mk_jo = pj::Object::Ptr{new Poco::JSON::Object};
+		mk_jo->set("inline_keyboard", kb_dv);
+		req_jo->set("reply_markup", mk_jo);
+		SendMessage("editMessageReplyMarkup", req_jo);
+	}
 }
 
-bool TelegramBot::ProcessMessage(pdc::Var const& message_dv)
+void TelegramBot::ProcessMessage(pdc::Var const& msg_dv)
 {
-	auto message = message_dv.extract<pj::Object::Ptr>();
-	auto from = message->getObject("from");
-	auto user_id = from->getValue<::std::size_t>("id");
+	auto msg_jo = msg_dv.extract<pj::Object::Ptr>();
+	auto from_jo = msg_jo->getObject("from");
+	auto user_id = from_jo->getValue<::std::size_t>("id");
+
+	auto registered_user = IsUserRegistered(user_id);
 
 	//auto first_name = from->getValue<::std::string>("first_name");
 	//auto last_name = from->getValue<::std::string>("last_name");
 	//auto username = from->getValue<::std::string>("username");
 	//auto text = message->getValue<::std::string>("text");
 
-	auto registered_user = IsUserRegistered(user_id);
+	auto req_jo = pj::Object::Ptr{new pj::Object};
+	req_jo->set("chat_id", user_id);
 
-	auto jmsg = pj::Object::Ptr{new pj::Object};
-	jmsg->set("chat_id", user_id);
-
-	auto text_dv = message->get("text");
+	auto text_dv = msg_jo->get("text");
 	if (text_dv.isEmpty()) {
 		if (registered_user) {
-			jmsg->set("text", "Неправильный формат команды.");
-			auto err = NoError();
-			SendMessage("sendMessage", jmsg, err);
+			req_jo->set("text", "Неправильный формат команды.");
+			SendMessage("sendMessage", req_jo);
 		}
-		return true;
+		return;
 	}
 	auto text = text_dv.extract<::std::string>();
 
@@ -412,53 +403,49 @@ bool TelegramBot::ProcessMessage(pdc::Var const& message_dv)
 	::std::smatch match{};
 	if (!::std::regex_match(text, match, re)) {
 		if (registered_user) {
-			jmsg->set("text", "Неправильный формат команды.");
-			auto err = NoError();
-			SendMessage("sendMessage", jmsg, err);
+			req_jo->set("text", "Неправильный формат команды.");
+			SendMessage("sendMessage", req_jo);
 		}
-		return true;
+		return;
 	}
 	auto command = match[1].str();
 
 	if (command == "start") {
 		if (!match[2].length()) {
 			if (registered_user) {
-				jmsg->set("text", "Ок.");
-				auto err = NoError();
-				SendMessage("sendMessage", jmsg, err);
+				req_jo->set("text", "Ок.");
+				SendMessage("sendMessage", req_jo);
 			}
-			return true;
+			return;
 		} else {
 			auto payload = match[2].str();
 			ChatId invited_by{};
 			if (!PopInvite(payload, invited_by)) {
 				if (registered_user) {
-					jmsg->set("text", "Ключ не найден.");
-					auto err = NoError();
-					SendMessage("sendMessage", jmsg, err);
+					req_jo->set("text", "Ключ не найден.");
+					SendMessage("sendMessage", req_jo);
 				}
-				return true;
+				return;
 			}
 			RegisterUser(user_id);
-			jmsg->set("text", "Регистрация прошла успешно.");
-			auto err = NoError();
-			SendMessage("sendMessage", jmsg, err);
-			return true;
+			req_jo->set("text", "Регистрация прошла успешно.");
+			SendMessage("sendMessage", req_jo);
+			return;
 		}
 	}
 
 	if (!registered_user) {
-		return true;
+		return;
 	}
 
 	if (command == "calendar") {
 		Keyboard kb {Date::From(Today())};
 		ReadDataBase(kb.FirstDate(), kb.LastDate());
-		auto jkb = GenerateKeyboard(kb, user_id);
-		pj::Object::Ptr jmarkup{new Poco::JSON::Object};
-		jmarkup->set("inline_keyboard", jkb);
-		jmsg->set("reply_markup", jmarkup);
-		jmsg->set("text", "Календарь присутствий");
+		auto kb_dv = GenerateKeyboard(kb, user_id);
+		auto mk_jo = pj::Object::Ptr{new Poco::JSON::Object};
+		mk_jo->set("inline_keyboard", kb_dv);
+		req_jo->set("reply_markup", mk_jo);
+		req_jo->set("text", "Календарь присутствий");
 	} else if (command == "invite") {
 		auto invite_token = GenerateInviteToken();
 		PushInvite(invite_token, user_id);
@@ -467,63 +454,56 @@ bool TelegramBot::ProcessMessage(pdc::Var const& message_dv)
 		auto text = ::std::string{
 			"Передайте эту ссылку пользователю, которого хотите добавить:\n"};
 		text.append(invite_link);
-		jmsg->set("text", text);
+		req_jo->set("text", text);
 	} else {
-		jmsg->set("text", "Неизвестная команда.");
+		req_jo->set("text", "Неизвестная команда.");
 	}
 
-	auto err = NoError();
-	SendMessage("sendMessage", jmsg, err);
-	return true;
-}
-
-::std::string TelegramBot::GenerateInviteToken() const
-{
-	auto prng = ::Poco::Random{};
-	auto sstm = ::std::stringstream{};
-	auto encstm = ::Poco::Base64Encoder{sstm,
-		::Poco::Base64EncodingOptions::BASE64_URL_ENCODING |
-		::Poco::Base64EncodingOptions::BASE64_NO_PADDING};
-	static constexpr int TOKEN_LENGTH = 32;
-	static constexpr int N_BYTES = TOKEN_LENGTH / 4 * 3;
-	for (int i = 0; i < N_BYTES; ++i) {
-		encstm << prng.nextChar();
-	}
-	encstm.close();
-	return sstm.str();
+	SendMessage("sendMessage", req_jo);
 }
 
 bool TelegramBot::IsUserRegistered(ChatId user_id) const
 {
-	pd::Statement select(*db_session_);
+	auto select = pd::Statement{*db_session_};
 	select << "SELECT * FROM RegisteredUsers WHERE UserId=?",
 		pd_k::bind(user_id),
 		pd_k::now;
-	pd::RecordSet rs(select);
+	auto rs = pd::RecordSet{select};
 	if (!rs.extractedRowCount()) {
 		return false;
 	}
 	return true;
 }
 
-bool TelegramBot::ProcessUpdate(pj::Object::Ptr update)
+::std::string TelegramBot::GenerateInviteToken()
 {
-	//pj::Stringifier::condense(update, ::std::cout);
-	//::std::cout << ::std::endl;
-	auto update_id = update->getValue<::std::size_t>("update_id");
-	//::std::cout << update_id << ::std::endl;
-	if (update_id > last_update_id_) {
-		last_update_id_ = update_id;
+	auto prng = ::Poco::Random{};
+	auto sstm = ::std::stringstream{};
+	auto estm = ::Poco::Base64Encoder{sstm,
+		::Poco::Base64EncodingOptions::BASE64_URL_ENCODING |
+		::Poco::Base64EncodingOptions::BASE64_NO_PADDING};
+	static constexpr int TOKEN_LENGTH = 32;
+	static constexpr int N_BYTES = TOKEN_LENGTH / 4 * 3;
+	for (int i = 0; i < N_BYTES; ++i) {
+		estm << prng.nextChar();
 	}
-	auto cq = update->get("callback_query");
-	if (!cq.isEmpty()) {
-		return ProcessCallbackQuery(cq);
+	estm.close();
+	return sstm.str();
+}
+
+void TelegramBot::ProcessUpdate(pj::Object::Ptr update)
+{
+	if (auto upid = update->getValue<::std::size_t>("update_id"); upid > last_update_id_) {
+		last_update_id_ = upid;
 	}
-	auto msg = update->get("message");
-	if (!msg.isEmpty()) {
-		return ProcessMessage(msg);
+	if (auto msg = update->get("message"); !msg.isEmpty()) {
+		ProcessMessage(msg);
 	}
-	return true;
+	// TODO block unregistered users here
+	else if (auto cq = update->get("callback_query"); !cq.isEmpty()) {
+		ProcessCallbackQuery(cq);
+	}
+	// TODO handle unknown update
 }
 
 void TelegramBot::HandleUpdates(Error& error) noexcept
@@ -531,10 +511,7 @@ try {
 	auto req_jo = pj::Object::Ptr{new Poco::JSON::Object};
 	req_jo->set("offset", last_update_id_ + 1);
 	req_jo->set("timeout", 2);
-	auto res_dv = SendMessage("getUpdates", req_jo, error);
-	if (error) {
-		return;
-	}
+	auto res_dv = SendMessage("getUpdates", req_jo);
 	auto res_ja = res_dv.extract<pj::Array::Ptr>();
 	for (::std::size_t i = 0; i < res_ja->size(); ++i) {
 		ProcessUpdate(res_ja->getObject(i));
@@ -553,47 +530,32 @@ catch (...) {
 	::std::cerr << "unknown non-stantard exception" << ::std::endl;
 }
 
-pdc::Var TelegramBot::SendMessage(::std::string_view method,
-		pdc::Var const& req, Error& error) noexcept
-try {
+pdc::Var TelegramBot::SendMessage(::std::string_view method, pdc::Var const& req)
+{
 	Send(method, req);
 	auto resp_dv = Receive();
-	auto jresp = resp_dv.extract<pj::Object::Ptr>();
-	auto ok = jresp->getValue<bool>("ok");
-	if (!ok) {
-		error = Error{true};
-		return {};
+	auto resp_jo = resp_dv.extract<pj::Object::Ptr>();
+	if (auto ok = resp_jo->getValue<bool>("ok"); !ok) {
+		::std::stringstream sstm{};
+		sstm << "bad response: ";
+		pj::Stringifier::condense(resp_dv, sstm);
+		throw ::std::runtime_error{sstm.str()};
 	}
-	return jresp->get("result");
-}
-catch (::Poco::Exception const& e) {
-	error = Error{true};
-	::std::cerr << e.displayText() << ::std::endl;
-	return {};
-}
-catch (::std::exception const& e) {
-	error = Error{true};
-	::std::cerr << e.what() << ::std::endl;
-	return {};
-}
-catch (...) {
-	error = Error{true};
-	::std::cerr << "unknown non-stantard exception" << ::std::endl;
-	return {};
+	return resp_jo->get("result");
 }
 
 void TelegramBot::Send(::std::string_view method, pdc::Var const& json)
 {
 	::std::stringstream json_stm{};
 	pj::Stringifier::condense(json, json_stm);
-	pn::HTTPRequest request(
+	pn::HTTPRequest req(
 			pn::HTTPRequest::HTTP_POST,
 			GenerateMethodPath(base_path_, method),
 			Poco::Net::HTTPMessage::HTTP_1_1);
-	request.setContentType("application/json; charset=utf-8");
-	request.setContentLength(json_stm.tellp());
-	auto& request_stm = api_session_->sendRequest(request);
-	request_stm << json_stm.rdbuf();
+	req.setContentType("application/json; charset=utf-8");
+	req.setContentLength(json_stm.tellp());
+	auto& req_stm = api_session_->sendRequest(req);
+	req_stm << json_stm.rdbuf();
 }
 
 pdc::Var TelegramBot::Receive()
