@@ -520,7 +520,8 @@ void TelegramBot::HandleCommandUsers(ChatId user_id) {
 	auto rs = pd::RecordSet{select};
 	::std::vector<User> users{};
 	for (auto& row : rs) {
-		auto user_id = row.get(0).extract<ChatId>();
+		ChatId user_id{};
+		row.get(0).convert(user_id);
 		users.push_back(GetUserCaching(user_id));
 	}
 	return users;
