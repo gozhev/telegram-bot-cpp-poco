@@ -7,6 +7,7 @@ RequiresMountsFor=%h
 Environment=
 Restart=on-failure
 TimeoutStopSec=10
+WorkingDirectory=%h/devel/telegram-bot-cxx
 ExecStart=%h/devel/telegram-bot-cxx/telegram-bot
 Type=simple
 
