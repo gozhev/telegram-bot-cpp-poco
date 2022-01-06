@@ -1,0 +1,3 @@
+[submodule "make.mk"]
+	path = make.mk
+	url = git@github.com:gozhev/make.mk.git

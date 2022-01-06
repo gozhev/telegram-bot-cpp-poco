@@ -1,4 +1,4 @@
-include make/make.mk
+include make.mk/make.mk
 
 $.cxxflags += \
 	-std=c++17 \
@@ -25,7 +25,7 @@ $.ldlibs += \
 $(cc_binary)
 	name = telegram-bot
 	srcs = \
-		main.cc \
-		TelegramBot.cc \
+		src/main.cc \
+		src/TelegramBot.cc \
 		#
 $;
