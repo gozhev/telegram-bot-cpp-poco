@@ -543,11 +543,12 @@ bool TelegramBot::IsUserRegistered(ChatId user_id) const
 ::std::string TelegramBot::GetListOfCommads() const
 {
 	::std::stringstream sstm{};
-	sstm << "Доступные команды:\n" <<
-		"\n" << "/start - показать доступные команды" <<
-		"\n" << "/calendar - открыть календарь посещений" <<
-		"\n" << "/invite - пригласить нового пользователя" <<
-		"\n" << "/users - показать зарегистрированных пользователей";
+	sstm << "Доступные команды:\n"
+		<< "\n" << "/calendar - открыть календарь посещений"
+		<< "\n" << "/invite - пригласить нового пользователя"
+		<< "\n" << "/users - показать зарегистрированных пользователей"
+		<< "\n" << "/start - показать доступные команды"
+		;
 	return sstm.str();
 }
 
