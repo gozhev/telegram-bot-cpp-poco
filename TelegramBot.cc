@@ -1,8 +1,8 @@
 #include "TelegramBot.h"
 
+#include <fstream>
 #include <regex>
 #include <sstream>
-#include <fstream>
 
 #include <Poco/Base64Encoder.h>
 #include <Poco/Data/MySQL/MySQLException.h>
@@ -13,6 +13,7 @@
 #include <Poco/TextIterator.h>
 #include <Poco/Util/PropertyFileConfiguration.h>
 
+namespace p = ::Poco;
 namespace p_json = ::Poco::JSON;
 namespace p_net = ::Poco::Net;
 namespace p_dyn = ::Poco::Dynamic;
@@ -36,12 +37,13 @@ try {
 	p_net::HTTPSStreamFactory::registerFactory();
 	p_net::initializeSSL();
 
+	context_ = p_net::Context::Ptr{new p_net::Context(p_net::Context::CLIENT_USE, "")};
+
 	cert_handler_ =
 		p_net::SSLManager::InvalidCertificateHandlerPtr{new p_net::AcceptCertificateHandler(false)};
-	context_ = p_net::Context::Ptr{new p_net::Context(p_net::Context::CLIENT_USE, "")};
 	p_net::SSLManager::instance().initializeClient(0, cert_handler_, context_);
 
-	const auto uri = ::Poco::URI{API_URL};
+	const auto uri = p::URI{API_URL};
 	api_session_ = ::std::make_unique<p_net::HTTPSClientSession>(uri.getHost(), uri.getPort(), context_);
 	api_session_->setKeepAlive(true);
 
@@ -66,7 +68,7 @@ try {
 		"Invite VARCHAR(64) PRIMARY KEY, "
 		"InvitedBy BIGINT)", p_kw::now;
 }
-catch (::Poco::Exception const& e) {
+catch (p::Exception const& e) {
 	error = Error{true};
 	::std::cerr << e.displayText() << ::std::endl;
 }
@@ -365,6 +367,10 @@ void TelegramBot::ProcessCallbackQuery(p_dyn::Var const& cq)
 			}
 		}
 		break;
+	case Key::Type::MONTH:
+	case Key::Type::EMPTY:
+	case Key::Type::CLOSE:
+		break;
 	}
 
 	{
@@ -482,6 +488,8 @@ void TelegramBot::ProcessMessage(p_dyn::Var const& msg_dv)
 		SendMessage("sendMessage", req_jo);
 	} else if (command == "users") {
 		HandleCommandUsers(user_id);
+	} else if (command == "sensor") {
+		HandleCommandSensor(user_id);
 	} else {
 		auto req_jo = p_json::Object::Ptr{new p_json::Object};
 		req_jo->set("chat_id", user_id);
@@ -492,9 +500,60 @@ void TelegramBot::ProcessMessage(p_dyn::Var const& msg_dv)
 	}
 }
 
+void TelegramBot::HandleCommandSensor(ChatId user_id) {
+	auto res_jo = p_json::Object::Ptr{};
+	auto text = ::std::string{};
+	try {
+		static const p::URI uri("http://info.bvo.home.gozhev.ru");
+		auto path = uri.getPathAndQuery();
+		if (path.empty()) {
+			path = "/";
+		}
+		p_net::HTTPClientSession sess(uri.getHost(), uri.getPort());
+		p_net::HTTPRequest req(p_net::HTTPRequest::HTTP_GET, path, p_net::HTTPMessage::HTTP_1_1);
+		p_net::HTTPResponse res{};
+		sess.sendRequest(req);
+		auto& res_stm = sess.receiveResponse(res);
+		auto res_dv = p_json::Parser{}.parse(res_stm);
+		res_jo = res_dv.extract<p_json::Object::Ptr>();
+	}
+	catch (p::Exception const& e) {
+		::std::cerr << "error: handle sensor: " << e.displayText() << ::std::endl;
+	}
+	if (res_jo.isNull()) {
+		text = "Невозможно получить данные";
+	} else {
+		::std::ostringstream sstm{};
+		if (auto dv = res_jo->get("temperature"); !dv.isEmpty()) {
+			sstm << "температура: " << dv.extract<float>() << " ℃\n";
+		}
+		if (auto dv = res_jo->get("humidity"); !dv.isEmpty()) {
+			sstm << "влажность: " << dv.extract<float>() << " %\n";
+		}
+		if (auto dv = res_jo->get("pressure"); !dv.isEmpty()) {
+			sstm << "давление: " << dv.extract<float>() << " hPa\n";
+		}
+		if (auto dv = res_jo->get("last_seen"); !dv.isEmpty()) {
+			sstm << "время измерения: " << dv.extract<float>() << "\n";
+		}
+		auto str = sstm.str();
+		if (str.empty()) {
+			text = "Пустые данные";
+		} else {
+			text.append("Показания внутри дома:\n");
+			text.append(str);
+		}
+	}
+
+	auto req_jo = p_json::Object::Ptr{new p_json::Object};
+	req_jo->set("chat_id", user_id);
+	req_jo->set("text", text);
+	SendMessage("sendMessage", req_jo);
+}
+
 void TelegramBot::HandleCommandUsers(ChatId user_id) {
 	auto users = GetRegisteredUsers();
-	::std::stringstream sstm{};
+	::std::ostringstream sstm{};
 	sstm << "Зарегистрированные пользователи:\n";
 	for (auto const& user : users) {
 		sstm << "\n";
@@ -542,8 +601,9 @@ bool TelegramBot::IsUserRegistered(ChatId user_id) const
 
 ::std::string TelegramBot::GetListOfCommads() const
 {
-	::std::stringstream sstm{};
+	::std::ostringstream sstm{};
 	sstm << "Доступные команды:\n"
+		<< "\n" << "/sensor - получить показания датчика"
 		<< "\n" << "/calendar - открыть календарь посещений"
 		<< "\n" << "/invite - пригласить нового пользователя"
 		<< "\n" << "/users - показать зарегистрированных пользователей"
@@ -554,11 +614,11 @@ bool TelegramBot::IsUserRegistered(ChatId user_id) const
 
 ::std::string TelegramBot::GenerateInviteToken()
 {
-	auto prng = ::Poco::Random{};
+	auto prng = p::Random{};
 	auto sstm = ::std::stringstream{};
-	auto estm = ::Poco::Base64Encoder{sstm,
-		::Poco::Base64EncodingOptions::BASE64_URL_ENCODING |
-		::Poco::Base64EncodingOptions::BASE64_NO_PADDING};
+	auto estm = p::Base64Encoder{sstm,
+		p::Base64EncodingOptions::BASE64_URL_ENCODING |
+		p::Base64EncodingOptions::BASE64_NO_PADDING};
 	static constexpr int TOKEN_LENGTH = 32;
 	static constexpr int N_BYTES = TOKEN_LENGTH / 4 * 3;
 	for (int i = 0; i < N_BYTES; ++i) {
@@ -595,7 +655,7 @@ try {
 	}
 	OnUpdateSucceed(error);
 }
-catch (::Poco::Exception const& e) {
+catch (p::Exception const& e) {
 	OnUpdateFailed(error);
 	::std::cerr << e.displayText() << ::std::endl;
 }
@@ -840,9 +900,9 @@ p_dyn::Var TelegramBot::GenerateKeyboard(Keyboard const& kb, ChatId user_id)
 	auto underlined = ::std::string{};
 	static constexpr int UTF8_MAX_BYTES = 4;
 	::std::array<uint8_t, UTF8_MAX_BYTES> buf{};
-	::Poco::UTF8Encoding enc{};
-	auto ich = ::Poco::TextIterator{s, enc};
-	auto iend = ::Poco::TextIterator{s};
+	p::UTF8Encoding enc{};
+	auto ich = p::TextIterator{s, enc};
+	auto iend = p::TextIterator{s};
 	for (; ich != iend; ++ich) {
 		int n_bytes = enc.convert(*ich, buf.data(), UTF8_MAX_BYTES);
 		underlined.append(reinterpret_cast<char*>(buf.data()), n_bytes);
@@ -951,7 +1011,7 @@ TelegramBot::Date TelegramBot::Keyboard::LastDate() const
 	}
 	for (int i = 0;;) {
 		grid[i] = {Date::From(tm), skip};
-		if (++i >= grid.size()) {
+		if (++i >= static_cast<int>(grid.size())) {
 			break;
 		}
 		if (skip) {

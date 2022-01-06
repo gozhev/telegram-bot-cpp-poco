@@ -155,6 +155,7 @@ private:
 
 	::std::size_t error_seq_count_{};
 
+	void HandleCommandSensor(ChatId user_id);
 	void HandleCommandUsers(ChatId user_id);
 	::std::vector<User> GetRegisteredUsers();
 	void OnUpdateSucceed(Error& error) noexcept;
