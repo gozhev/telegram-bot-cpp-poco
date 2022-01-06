@@ -525,22 +525,28 @@ void TelegramBot::HandleCommandSensor(ChatId user_id) {
 	} else {
 		::std::ostringstream sstm{};
 		if (auto dv = res_jo->get("temperature"); !dv.isEmpty()) {
-			sstm << "температура: " << dv.extract<float>() << " ℃\n";
+			double value{};
+			dv.convert(value);
+			sstm << "Температура:  " << value << " ℃\n";
 		}
 		if (auto dv = res_jo->get("humidity"); !dv.isEmpty()) {
-			sstm << "влажность: " << dv.extract<float>() << " %\n";
+			double value{};
+			dv.convert(value);
+			sstm << "Влажность:  " << value << " %\n";
 		}
 		if (auto dv = res_jo->get("pressure"); !dv.isEmpty()) {
-			sstm << "давление: " << dv.extract<float>() << " hPa\n";
+			double value{};
+			dv.convert(value);
+			sstm << "Давление:  " << value << " hPa\n";
 		}
-		if (auto dv = res_jo->get("last_seen"); !dv.isEmpty()) {
-			sstm << "время измерения: " << dv.extract<float>() << "\n";
-		}
-		auto str = sstm.str();
-		if (str.empty()) {
+		if (!sstm.tellp()) {
 			text = "Пустые данные";
 		} else {
-			text.append("Показания внутри дома:\n");
+			if (auto dv = res_jo->get("last_seen"); !dv.isEmpty()) {
+				sstm << "\nВремя измерения:  " << dv.extract<::std::string>() << "\n";
+			}
+			auto str = sstm.str();
+			text.append("Показания внутри дома:\n\n");
 			text.append(str);
 		}
 	}
