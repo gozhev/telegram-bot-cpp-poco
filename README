@@ -1,5 +1,5 @@
-Telegram-Bot-Cxx
+Telegram-Bot-Cpp
 ================
 
 This is a bot program for the Telegram messeger. It's written in C++17 and uses
-the POCO C++ libraries. It needs a MySQL server as a persistent storage.
+the POCO C++ libraries. It needs a separate MySQL server as a persistent storage.
