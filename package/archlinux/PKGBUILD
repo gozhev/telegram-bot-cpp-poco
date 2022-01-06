@@ -1,0 +1,25 @@
+# Maintainer: Mikhail Gozhev <m@gozhev.ru>
+pkgname=telegram-bot
+pkgver=0.0.1
+pkgrel=1
+pkgdesc="A telegram bot program used as a home automation interface"
+arch=('x86_64' 'aarch64')
+url="https://github.com/gozhev/web-telegram-bot-cpp-poco"
+license=('unknown')
+backup=(
+	'etc/telegram-bot/telegram-bot.conf'
+)
+
+prepare() {
+	ln --symbolic --verbose "../../../." "$pkgname-$pkgver"
+}
+
+build() {
+	cd "$pkgname-$pkgver"
+	make
+}
+
+package() {
+	cd "$pkgname-$pkgver"
+	make DESTDIR="$pkgdir" PREFIX="/usr" install
+}

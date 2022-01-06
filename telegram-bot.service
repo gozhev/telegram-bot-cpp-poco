@@ -9,8 +9,8 @@ Environment=
 Restart=always
 RestartSec=60
 TimeoutStopSec=10
-WorkingDirectory=%h/devel/web/web-telegram-bot-cpp-poco
-ExecStart=%h/devel/web/web-telegram-bot-cpp-poco/build/telegram-bot
+WorkingDirectory=/etc/telegram-bot
+ExecStart=/usr/bin/telegram-bot
 Type=simple
 
 [Install]
