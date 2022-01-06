@@ -67,11 +67,11 @@ TelegramBot::TelegramBot(Error& error) noexcept try
 		"InvitedBy BIGINT)", pd_k::now;
 }
 catch (::Poco::Exception const& e) {
-	::std::cout << e.displayText() << ::std::endl;
+	::std::cerr << e.displayText() << ::std::endl;
 	error = Error{true};
 }
 catch (::std::exception const& e) {
-	::std::cout << e.what() << ::std::endl;
+	::std::cerr << e.what() << ::std::endl;
 	error = Error{true};
 }
 
@@ -681,11 +681,11 @@ void TelegramBot::HandleUpdates(Error& error) noexcept try
 	}
 }
 catch (::Poco::Exception const& e) {
-	::std::cout << e.displayText() << ::std::endl;
+	::std::cerr << e.displayText() << ::std::endl;
 	error = Error{true};
 }
 catch (::std::exception const& e) {
-	::std::cout << e.what() << ::std::endl;
+	::std::cerr << e.what() << ::std::endl;
 	error = Error{true};
 }
 
@@ -726,7 +726,7 @@ pdy::Var TelegramBot::GenerateKeyboard(Keyboard const& kb, ChatId user_id)
 	using ObjectPtr = pj::Object::Ptr;
 	auto& ud = user_data_[user_id];
 	auto ks = CallbackData::Serialize(kb);
-	auto grid = kb.Grid();
+	auto grid = kb.GenerateGrid();
 	auto today = Date::From(Today());
 	ArrayPtr jkb{new Array};
 
@@ -886,17 +886,15 @@ pdy::Var TelegramBot::GenerateKeyboard(Keyboard const& kb, ChatId user_id)
 	return jkb;
 }
 
-TelegramBot::Date TelegramBot::Keyboard::LastDate() const
+TelegramBot::Keyboard::Keyboard(Date const& date)
 {
-	auto tm = first_date.first.To<::std::tm>();
-	tm.tm_mday += (DAYS_PER_WEEK * n_cols) - 1;
-	::std::mktime(&tm);
-	return Date::From(tm);
+	SetCenter(date);
 }
 
 void TelegramBot::Keyboard::SetCenter(Date const& d)
 {
 	first_date = {d, false};
+	ToStartOfWeek();
 	MoveWeek(-(n_cols - 1) / 2);
 }
 
@@ -914,20 +912,28 @@ void TelegramBot::Keyboard::MoveWeek(int shift)
 
 void TelegramBot::Keyboard::MoveMonth(int shift)
 {
-	MoveWeek(shift * 4);
+	auto tm = first_date.first.To<::std::tm>();
+	tm.tm_mon += shift + (first_date.second ? 1 : 0);
+	tm.tm_mday = 1;
+	::std::mktime(&tm);
+	first_date.first = Date::From(tm);
+	ToStartOfWeek();
 }
 
-TelegramBot::Keyboard::Keyboard(Date const& date)
+void TelegramBot::Keyboard::ToStartOfWeek()
 {
-	SetCenter(date);
+	auto tm = first_date.first.To<::std::tm>();
+	::std::mktime(&tm);
+	tm.tm_mday -= (tm.tm_wday + DAYS_PER_WEEK - 1) % DAYS_PER_WEEK;
+	auto old_mon = tm.tm_mon;
+	::std::mktime(&tm);
+	first_date.second = (old_mon != tm.tm_mon);
+	first_date.first = Date::From(tm);
 }
 
 void TelegramBot::Keyboard::Advance(bool back)
 {
 	auto tm = first_date.first.To<::std::tm>();
-	::std::mktime(&tm);
-	tm.tm_mday -= (tm.tm_wday + DAYS_PER_WEEK - 1) % DAYS_PER_WEEK;
-	::std::mktime(&tm);
 	auto cur = tm;
 	if (back) {
 		tm.tm_mday -= DAYS_PER_WEEK;
@@ -949,7 +955,15 @@ void TelegramBot::Keyboard::Advance(bool back)
 	first_date.first = Date::From(tm);
 }
 
-::std::vector<::std::pair<TelegramBot::Date, bool>> TelegramBot::Keyboard::Grid() const
+TelegramBot::Date TelegramBot::Keyboard::LastDate() const
+{
+	auto tm = first_date.first.To<::std::tm>();
+	tm.tm_mday += (DAYS_PER_WEEK * n_cols) - 1;
+	::std::mktime(&tm);
+	return Date::From(tm);
+}
+
+::std::vector<::std::pair<TelegramBot::Date, bool>> TelegramBot::Keyboard::GenerateGrid() const
 {
 	::std::vector<::std::pair<Date, bool>> grid(DAYS_PER_WEEK * n_cols);
 	if (!grid.size()) {

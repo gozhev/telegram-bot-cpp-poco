@@ -88,6 +88,7 @@ private:
 		void SetCenter(Date const& date);
 		void MoveMonth(int shift);
 		void MoveWeek(int shift);
+		void ToStartOfWeek();
 
 		Date const& FirstDate() const { return first_date.first; };
 		Date LastDate() const;
@@ -95,7 +96,7 @@ private:
 		Mode GetMode() const { return mode; }
 		void SetMode(Mode m) { mode = m; }
 
-		::std::vector<::std::pair<Date, bool>> Grid() const;
+		::std::vector<::std::pair<Date, bool>> GenerateGrid() const;
 
 	private:
 		void Advance(bool back = false);
@@ -125,7 +126,7 @@ private:
 		ChatId user_id {};
 		::std::string first_name{};
 		::std::string last_name{};
-		::std::string username {};
+		::std::string username{};
 	};
 
 	struct UserData {
