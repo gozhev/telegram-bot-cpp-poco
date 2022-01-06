@@ -20,6 +20,7 @@ $.ldlibs += \
 	-lPocoData \
 	-lPocoDataMySQL \
 	-lPocoUtil \
+	-lmemcached \
 	#
 
 $(cc_binary)

@@ -14,6 +14,8 @@
 #include <Poco/TextIterator.h>
 #include <Poco/Util/PropertyFileConfiguration.h>
 
+#include <libmemcached/memcached.h>
+
 namespace p = ::Poco;
 namespace p_json = ::Poco::JSON;
 namespace p_net = ::Poco::Net;
@@ -500,6 +502,8 @@ void TelegramBot::ProcessMessage(p_dyn::Var const& msg_dv)
 		HandleCommandUsers(chat_id);
 	} else if (command == "sensor") {
 		HandleCommandSensor(chat_id);
+	} else if (command == "camera") {
+		HandleCommandCamera(chat_id);
 	} else {
 		auto req_jo = p_json::Object::Ptr{new p_json::Object};
 		req_jo->set("chat_id", chat_id);
@@ -508,6 +512,37 @@ void TelegramBot::ProcessMessage(p_dyn::Var const& msg_dv)
 		req_jo->set("text", GetListOfCommads());
 		SendMessage("sendMessage", req_jo);
 	}
+}
+
+void TelegramBot::HandleCommandCamera(ChatId user_id) {
+	auto key = ::std::string{"token"};
+	auto token = GenerateToken();
+
+	::memcached_server_st* servers{};
+	::memcached_st* memc{};
+	::memcached_return retval{};
+
+	memc = ::memcached_create(nullptr);
+	servers = ::memcached_server_list_append(servers, "localhost", 11211, &retval);
+	retval = ::memcached_server_push(memc, servers);
+
+	if (retval != MEMCACHED_SUCCESS) {
+		::std::cerr << "error: memcached: " << ::memcached_strerror(memc, retval) << ::std::endl;
+		return;
+	}
+
+	retval = ::memcached_set(memc, key.c_str(), key.size(),
+		token.c_str(), token.size(), ::std::time_t{}, ::std::uint32_t{});
+
+	if (retval != MEMCACHED_SUCCESS) {
+		::std::cerr << "error: memcached: " << ::memcached_strerror(memc, retval) << ::std::endl;
+	}
+
+	auto link = ::std::string{"http://psi.home.gozhev.ru/" + token};
+	auto req_jo = p_json::Object::Ptr{new p_json::Object};
+	req_jo->set("chat_id", user_id);
+	req_jo->set("text", link);
+	SendMessage("sendMessage", req_jo);
 }
 
 void TelegramBot::HandleCommandSensor(ChatId user_id) {
@@ -624,11 +659,12 @@ bool TelegramBot::IsUserRegistered(ChatId user_id) const
 		<< "\n" << "/invite - пригласить нового пользователя"
 		<< "\n" << "/users - показать зарегистрированных пользователей"
 		<< "\n" << "/start - показать доступные команды"
+		<< "\n" << "/camera - открыть видео в браузере"
 		;
 	return sstm.str();
 }
 
-::std::string TelegramBot::GenerateInviteToken()
+::std::string TelegramBot::GenerateToken()
 {
 	auto prng = p::Random{};
 	auto sstm = ::std::stringstream{};
@@ -642,6 +678,11 @@ bool TelegramBot::IsUserRegistered(ChatId user_id) const
 	}
 	estm.close();
 	return sstm.str();
+}
+
+::std::string TelegramBot::GenerateInviteToken()
+{
+	return GenerateToken();
 }
 
 void TelegramBot::ProcessUpdate(p_json::Object::Ptr update)

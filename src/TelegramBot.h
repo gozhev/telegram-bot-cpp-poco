@@ -155,6 +155,7 @@ private:
 
 	::std::size_t error_seq_count_{};
 
+	void HandleCommandCamera(ChatId user_id);
 	void HandleCommandSensor(ChatId user_id);
 	void HandleCommandUsers(ChatId user_id);
 	::std::vector<User> GetRegisteredUsers();
@@ -183,6 +184,7 @@ private:
 
 	void HandleUpdates(Error& error) noexcept;
 
+	static ::std::string GenerateToken();
 	static ::std::string GenerateInviteToken();
 	static ::std::string UnderlineUtf8String(::std::string const& s);
 
