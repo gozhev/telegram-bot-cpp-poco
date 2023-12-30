@@ -27,7 +27,7 @@ $(cc_binary)
 	name = telegram-bot
 	srcs = \
 		src/main.cc \
-		src/TelegramBot.cc \
+		src/telegram_bot.cc \
 		#
 $;
 
@@ -40,7 +40,7 @@ install:
 	install --mode=644 -D --target-directory=$(DESTDIR)$(PREFIX)/share/telegram-bot telegram-bot.conf.sample 
 	install --mode=644 -D --target-directory=$(DESTDIR)$(PREFIX)/lib/systemd/system telegram-bot.service 
 	install --mode=755 -D --target-directory=$(DESTDIR)$(PREFIX)/bin build/telegram-bot
-	install --mode=644 -D telegram-bot.conf.sample $(DESTDIR)/etc/telegram-bot/telegram-bot.conf
+	#install --mode=644 -D telegram-bot.conf.sample $(DESTDIR)/etc/telegram-bot/telegram-bot.conf
 
 .PHONY: uninstall
 uninstall:

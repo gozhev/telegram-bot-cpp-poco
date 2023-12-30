@@ -10,7 +10,7 @@ Restart=always
 RestartSec=60
 TimeoutStopSec=10
 WorkingDirectory=/etc/telegram-bot
-ExecStart=/usr/bin/telegram-bot
+ExecStart=/usr/local/bin/telegram-bot
 Type=simple
 
 [Install]

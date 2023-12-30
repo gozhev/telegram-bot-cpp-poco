@@ -37,7 +37,7 @@ public:
 	static Error NoError() noexcept { return Error{false}; }
 
 	explicit TelegramBot(Error& error) noexcept;
-	template<typename T, typename = ::std::enable_if_t<noexcept(::std::declval<T>()())>>
+	template<typename T, ::std::enable_if_t<noexcept(::std::declval<T>()()), bool> = true>
 		void Run(T stop, Error& error) noexcept;
 
 	TelegramBot(TelegramBot const&) = delete;
@@ -207,7 +207,7 @@ template<> ::std::string TelegramBot::Date::To() const;
 template<> ::std::tm TelegramBot::Date::To() const;
 template<> ::Poco::Data::Date TelegramBot::Date::To() const;
 
-template<typename T, typename = ::std::enable_if_t<noexcept(::std::declval<T>()())>>
+template<typename T, ::std::enable_if_t<noexcept(::std::declval<T>()()), bool>>
 	inline void TelegramBot::Run(T stop, Error& error) noexcept
 {
 	auto err = Error{false};

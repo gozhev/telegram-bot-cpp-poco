@@ -1,4 +1,4 @@
-#include "TelegramBot.h"
+#include "telegram_bot.hh"
 
 #include <fstream>
 #include <optional>
@@ -191,18 +191,22 @@ void TelegramBot::DiscardSelection(ChatId user_id)
 auto TelegramBot::RecacheUser(ChatId user_id) -> decltype(user_cache_)::iterator
 {
 	User user{};
-	auto req_jo = p_json::Object::Ptr{new Poco::JSON::Object};
-	req_jo->set("chat_id", user_id);
-	auto res_dv = SendMessage("getChat", req_jo);
-	auto res_jo = res_dv.extract<p_json::Object::Ptr>();
-	if (auto dv = res_jo->get("first_name"); !dv.isEmpty()) {
-		user.first_name = dv.extract<::std::string>();
-	}
-	if (auto dv = res_jo->get("last_name"); !dv.isEmpty()) {
-		user.last_name = dv.extract<::std::string>();
-	}
-	if (auto dv = res_jo->get("username"); !dv.isEmpty()) {
-		user.username = dv.extract<::std::string>();
+	try {
+		auto req_jo = p_json::Object::Ptr{new Poco::JSON::Object};
+		req_jo->set("chat_id", user_id);
+		auto res_dv = SendMessage("getChat", req_jo);
+		auto res_jo = res_dv.extract<p_json::Object::Ptr>();
+		if (auto dv = res_jo->get("first_name"); !dv.isEmpty()) {
+			user.first_name = dv.extract<::std::string>();
+		}
+		if (auto dv = res_jo->get("last_name"); !dv.isEmpty()) {
+			user.last_name = dv.extract<::std::string>();
+		}
+		if (auto dv = res_jo->get("username"); !dv.isEmpty()) {
+			user.username = dv.extract<::std::string>();
+		}
+	} catch (::std::runtime_error const & e) {
+		::std::cerr << "error: recache user: " << e.what() << ::std::endl;
 	}
 	user.user_id = user_id;
 	return user_cache_.insert_or_assign(user_id, ::std::move(user)).first;
@@ -604,21 +608,21 @@ void TelegramBot::HandleCommandSensor(ChatId user_id) {
 
 void TelegramBot::HandleCommandUsers(ChatId user_id) {
 	auto users = GetRegisteredUsers();
-	::std::ostringstream sstm{};
-	sstm << "Зарегистрированные пользователи:\n";
+	::std::ostringstream ss{};
+	ss << "Зарегистрированные пользователи:\n";
 	for (auto const& user : users) {
-		sstm << "\n";
+		ss << "\n";
 		if (!user.first_name.empty()) {
-			sstm << user.first_name << " ";
+			ss << user.first_name << " ";
 		}
 		if (!user.last_name.empty()) {
-			sstm << user.last_name << " ";
+			ss << user.last_name << " ";
 		}
-		sstm << "(" << user.user_id << ")";
+		ss << "(" << user.user_id << ")";
 	}
 	auto req_jo = p_json::Object::Ptr{new p_json::Object};
 	req_jo->set("chat_id", user_id);
-	req_jo->set("text", sstm.str());
+	req_jo->set("text", ss.str());
 	SendMessage("sendMessage", req_jo);
 }
 
@@ -628,8 +632,8 @@ void TelegramBot::HandleCommandUsers(ChatId user_id) {
 	select << "SELECT UserId FROM RegisteredUsers",
 		p_kw::now;
 	auto rs = p_data::RecordSet{select};
-	::std::vector<User> users{};
-	for (auto& row : rs) {
+	auto users = ::std::vector<User>{};
+	for (auto & row : rs) {
 		ChatId user_id{};
 		row.get(0).convert(user_id);
 		users.push_back(GetUserCaching(user_id));
@@ -714,11 +718,11 @@ try {
 }
 catch (p::Exception const& e) {
 	OnUpdateFailed(error);
-	::std::cerr << e.displayText() << ::std::endl;
+	::std::cerr << "poco exception: " << e.displayText() << ::std::endl;
 }
 catch (::std::exception const& e) {
 	OnUpdateFailed(error);
-	::std::cerr << e.what() << ::std::endl;
+	::std::cerr << "std exception: " << e.what() << ::std::endl;
 }
 catch (...) {
 	error = Error{true};
