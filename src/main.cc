@@ -1,6 +1,6 @@
 #include <csignal>
 
-#include "TelegramBot.h"
+#include "telegram_bot.hh"
 
 static volatile ::std::sig_atomic_t g_quit = 0;
 
